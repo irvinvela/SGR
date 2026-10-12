@@ -1,6 +1,6 @@
 # SGR Online
 
-Nueva plataforma web de gestión de restaurantes de Semai Labs. Esta aplicación
+Nueva plataforma web de gestión de restaurantes de Semaia Labs. Esta aplicación
 es independiente del runtime Electron/SQLite de FloCafe y se publica
 directamente en `https://semaialabs.com`.
 
