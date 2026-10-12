@@ -8,6 +8,7 @@ const modules = [
   ["/app/catalog", "Catálogo", "Administra categorías, productos, precios e impuestos.", "Disponible"],
   ["/app/orders", "Pedidos", "Abre mesas, añade productos y envía rondas nuevas a cocina.", "Disponible"],
   ["/app/kitchen", "Cocina", "Gestiona las rondas pendientes, en preparación y listas.", "Disponible"],
+  ["/app/checkout", "Caja", "Registra pagos parciales o completos y cierra las mesas.", "Disponible"],
 ];
 
 export default function DashboardPage() {

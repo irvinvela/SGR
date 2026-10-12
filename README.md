@@ -16,12 +16,13 @@ directamente en `https://semaialabs.com`.
 - Pedidos abiertos por mesa con precios e impuestos preservados como snapshots.
 - Rondas de cocina idempotentes: cada envío incluye únicamente ítems nuevos.
 - KDS con estados nueva, en preparación, lista y completada.
+- Solicitud de cuenta y cobros parciales o completos en efectivo y tarjeta.
+- Pagos idempotentes, cambio calculado en el backend y cierre atómico de mesa.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
 
-Los módulos de pagos, cierre de mesa e impresión todavía no contienen lógica
-operativa.
+El módulo de impresión todavía no contiene lógica operativa.
 
 ## Estructura
 

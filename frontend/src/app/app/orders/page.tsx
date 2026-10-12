@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -14,6 +15,7 @@ import {
   listProducts,
   listTables,
   openOrder,
+  requestOrderPayment,
   sendOrderToKitchen,
 } from "@/lib/api";
 
@@ -120,6 +122,18 @@ export default function OrdersPage() {
     }
   }
 
+  async function requestPayment(order: RestaurantOrder) {
+    setBusy(true);
+    try {
+      await requestOrderPayment(order.id, order.version);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo solicitar la cuenta");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const freeTables = tables.filter((table) => table.status === "FREE");
 
   return (
@@ -176,7 +190,7 @@ export default function OrdersPage() {
                       </li>
                     ))}
                   </ul>
-                  {canOperate(user) && (
+                  {canOperate(user) && order.status === "OPEN" && (
                     <>
                       <form className="inline-order-form" onSubmit={(event) => addItem(event, order.id)}>
                         <select name="productId" required>
@@ -198,7 +212,19 @@ export default function OrdersPage() {
                       >
                         {pendingCount > 0 ? `Enviar ${pendingCount} a cocina` : "Todo enviado"}
                       </button>
+                      <button
+                        className="secondary-button"
+                        disabled={busy || pendingCount > 0 || order.items.length === 0}
+                        onClick={() => requestPayment(order)}
+                      >
+                        Solicitar cuenta
+                      </button>
                     </>
+                  )}
+                  {order.status === "WAITING_PAYMENT" && (
+                    <Link className="checkout-link" href={`/app/checkout?orderId=${order.id}`}>
+                      Cobrar pedido
+                    </Link>
                   )}
                 </article>
               );
