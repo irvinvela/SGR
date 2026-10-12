@@ -297,7 +297,7 @@ public class OrderController {
 
     private UUID requireOpenOrder(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
-                SELECT location_id FROM restaurant_orders
+                SELECT location_id FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
                 WHERE id = :orderId
                   AND organization_id = :organizationId
                   AND status = 'OPEN'

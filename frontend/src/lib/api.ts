@@ -101,6 +101,33 @@ export type KitchenRound = {
   version: number;
 };
 
+export type Payment = {
+  id: string;
+  orderId: string;
+  method: "CASH" | "CARD";
+  amount: number;
+  tenderedAmount?: number;
+  changeAmount: number;
+  externalReference?: string;
+  idempotencyKey: string;
+  status: "COMPLETED" | "VOIDED";
+  paidAt: string;
+};
+
+export type OrderPaymentSummary = {
+  orderId: string;
+  orderNumber: number;
+  status: RestaurantOrder["status"];
+  locationId: string;
+  tableId: string;
+  tableName: string;
+  areaName: string;
+  total: number;
+  paid: number;
+  balance: number;
+  payments: Payment[];
+};
+
 function cookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
   return document.cookie
@@ -293,5 +320,28 @@ export const changeKitchenRoundStatus = (input: {
   expectedVersion: number;
 }) => apiRequest<KitchenRound>("/api/kitchen/rounds/status", {
   method: "PATCH",
+  body: JSON.stringify(input),
+});
+
+export const requestOrderPayment = (orderId: string, expectedVersion: number) =>
+  apiRequest<OrderPaymentSummary>("/api/payments/request", {
+    method: "POST",
+    body: JSON.stringify({ orderId, expectedVersion }),
+  });
+
+export const getOrderPaymentSummary = (orderId: string) =>
+  apiRequest<OrderPaymentSummary>(
+    `/api/payments/summary?orderId=${encodeURIComponent(orderId)}`,
+  );
+
+export const createPayment = (input: {
+  orderId: string;
+  method: "CASH" | "CARD";
+  amount: number;
+  tenderedAmount?: number;
+  externalReference?: string;
+  idempotencyKey: string;
+}) => apiRequest<{ payment: Payment; summary: OrderPaymentSummary }>("/api/payments", {
+  method: "POST",
   body: JSON.stringify(input),
 });
