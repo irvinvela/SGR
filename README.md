@@ -11,12 +11,14 @@ directamente en `https://semaialabs.com`.
 - Protección CSRF para operaciones autenticadas.
 - Modelo inicial multi-restaurante: organizaciones, locales, usuarios y roles.
 - Auditoría del inicio de sesión.
+- Gestión de salones y mesas con estados operativos y control de concurrencia.
+- Catálogo por local con categorías, productos, precio, IVA y disponibilidad.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
 
-Los módulos de mesas, pedidos, cocina, caja e impresión se muestran como
-próximas fases; todavía no contienen lógica operativa.
+Los módulos de pedidos, cocina, caja e impresión todavía no contienen lógica
+operativa.
 
 ## Estructura
 
@@ -95,9 +97,8 @@ existente debe mantener un certificado TLS válido.
 
 ## Próximas fases
 
-1. Salones, mesas y turnos.
-2. Catálogo, categorías, productos y modificadores.
-3. Pedidos idempotentes y rondas de cocina.
-4. KDS en tiempo real.
-5. Pagos y cierre de mesa.
-6. Agente local Windows para impresora USB y cola offline.
+1. Productos con grupos de modificadores.
+2. Pedidos idempotentes y rondas de cocina.
+3. KDS en tiempo real.
+4. Pagos y cierre de mesa.
+5. Agente local Windows para impresora USB y cola offline.

@@ -27,7 +27,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -184,12 +185,87 @@ input {
   padding: clamp(1.5rem, 4vw, 3rem);
 }
 
-.dashboard-header {
+.app-frame {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 230px minmax(0, 1fr);
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  gap: 2rem;
+  background: #163b2c;
+  color: #ffffff;
+  padding: 1.5rem;
+}
+
+.sidebar-organization {
+  margin: 0.6rem 0 0;
+  color: #c9ddd1;
+  font-size: 0.85rem;
+}
+
+.app-nav {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.app-nav a {
+  border-radius: 8px;
+  color: #d8e6de;
+  padding: 0.75rem;
+  text-decoration: none;
+}
+
+.app-nav a:hover,
+.app-nav a.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.sidebar-session {
+  margin-top: auto;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  padding: 0.7rem;
+  cursor: pointer;
+}
+
+.workspace {
+  min-width: 0;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.workspace-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  letter-spacing: -0.035em;
+}
+
+.user-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.page-intro {
+  margin: -1rem 0 2rem;
+  color: var(--muted);
 }
 
 .dashboard-grid {
@@ -199,11 +275,20 @@ input {
 }
 
 .module-card {
+  display: block;
   min-height: 180px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
+  color: var(--text);
   padding: 1.4rem;
+  text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.module-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
 }
 
 .module-card h2 {
@@ -226,6 +311,166 @@ input {
   font-weight: 700;
 }
 
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1.25rem;
+}
+
+.toolbar label {
+  display: grid;
+  min-width: 240px;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+input,
+select {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.65rem 0.75rem;
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(29, 107, 73, 0.12);
+}
+
+.forms-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(320px, 1.3fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.form-card {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1.25rem;
+}
+
+.form-card h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.form-card label,
+.table-card label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.split-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.table-card {
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--primary);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1.15rem;
+}
+
+.table-card.status-occupied {
+  border-top-color: #bc6b19;
+}
+
+.table-card.status-waiting_payment {
+  border-top-color: #9b3d86;
+}
+
+.table-card.status-out_of_service {
+  border-top-color: var(--muted);
+  opacity: 0.72;
+}
+
+.card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card-heading small,
+.product-row small {
+  color: var(--muted);
+}
+
+.card-heading h2,
+.product-row h2 {
+  margin: 0.3rem 0;
+  font-size: 1.1rem;
+}
+
+.card-heading > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.product-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.product-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 1rem 1.15rem;
+}
+
+.product-row p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.product-row.unavailable {
+  opacity: 0.58;
+}
+
+.product-price {
+  display: grid;
+  gap: 0.3rem;
+  text-align: right;
+}
+
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  padding: 2rem;
+  text-align: center;
+}
+
 @media (max-width: 800px) {
   .login-page {
     grid-template-columns: 1fr;
@@ -241,5 +486,32 @@ input {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-frame {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: static;
+    height: auto;
+    gap: 1rem;
+  }
+
+  .app-nav {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .sidebar-session {
+    margin-top: 0;
+  }
+
+  .forms-grid,
+  .product-row {
+    grid-template-columns: 1fr;
+  }
+
+  .product-price {
+    text-align: left;
   }
 }
