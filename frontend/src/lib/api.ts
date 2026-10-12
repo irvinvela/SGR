@@ -159,6 +159,73 @@ export type CashShift = {
   movements: CashMovement[];
 };
 
+export type Sale = {
+  orderId: string;
+  orderNumber: number;
+  tableName: string;
+  areaName: string;
+  closedAt: string;
+  total: number;
+  cashTotal: number;
+  cardTotal: number;
+};
+
+export type DailySales = {
+  locationId: string;
+  locationName: string;
+  businessDate: string;
+  timezone: string;
+  currency: string;
+  orderCount: number;
+  grossSales: number;
+  cashSales: number;
+  cardSales: number;
+  sales: Sale[];
+};
+
+export type SalesReceipt = {
+  documentType: "PAYMENT_RECEIPT";
+  fiscalDocument: false;
+  title: string;
+  disclaimer: string;
+  orderId: string;
+  orderNumber: number;
+  organizationName: string;
+  locationId: string;
+  locationName: string;
+  timezone: string;
+  currency: string;
+  tableName: string;
+  areaName: string;
+  guestCount: number;
+  openedBy: string;
+  openedAt: string;
+  closedAt: string;
+  total: number;
+  items: Array<{
+    productName: string;
+    sku: string;
+    quantity: number;
+    unitPrice: number;
+    taxRate: number;
+    lineTotal: number;
+  }>;
+  taxes: Array<{
+    taxRate: number;
+    taxableBase: number;
+    taxAmount: number;
+    grossAmount: number;
+  }>;
+  payments: Array<{
+    method: "CASH" | "CARD";
+    amount: number;
+    tenderedAmount?: number;
+    changeAmount: number;
+    externalReference?: string;
+    paidAt: string;
+  }>;
+};
+
 function cookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
   return document.cookie
@@ -416,3 +483,13 @@ export const closeCashShift = (input: {
   method: "POST",
   body: JSON.stringify(input),
 });
+
+export const getDailySales = (locationId: string, businessDate: string) =>
+  apiRequest<DailySales>(
+    `/api/sales?locationId=${encodeURIComponent(locationId)}&businessDate=${encodeURIComponent(businessDate)}`,
+  );
+
+export const getSalesReceipt = (orderId: string) =>
+  apiRequest<SalesReceipt>(
+    `/api/sales/receipt?orderId=${encodeURIComponent(orderId)}`,
+  );
