@@ -129,7 +129,7 @@ export default function CheckoutPage() {
 
   return (
     <AppShell title="Caja">
-      {() => (
+      {(user) => (
         <>
           <div className="toolbar">
             <label>
@@ -246,6 +246,12 @@ export default function CheckoutPage() {
                       </div>
                     ))}
                   </div>
+                )}
+                {summary.status === "PAID"
+                  && ["OWNER", "MANAGER", "CASHIER"].includes(user.role) && (
+                  <Link className="receipt-link no-print" href={`/app/sales?orderId=${summary.orderId}`}>
+                    Ver comprobante
+                  </Link>
                 )}
               </section>
             )}

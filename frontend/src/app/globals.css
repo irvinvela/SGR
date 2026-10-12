@@ -874,6 +874,231 @@ select:focus {
   font-weight: 700;
 }
 
+.sales-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sales-controls label {
+  display: grid;
+  min-width: 210px;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sales-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sales-overview > div {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.sales-overview span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.sales-overview strong {
+  font-size: 1.2rem;
+}
+
+.sales-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(420px, 1.3fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.sales-list {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.sales-list h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.sale-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sale-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.sale-row.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(29, 107, 73, 0.1);
+}
+
+.receipt-placeholder {
+  margin: 0;
+}
+
+.receipt-panel {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+.print-button {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
+
+.receipt-header {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  border-bottom: 2px solid var(--text);
+  padding: 0 5rem 1rem;
+  text-align: center;
+}
+
+.receipt-header > strong {
+  font-size: 1.25rem;
+}
+
+.receipt-header h2 {
+  margin: 0.75rem 0 0;
+  font-size: 1rem;
+}
+
+.receipt-header p {
+  margin: 0.25rem 0 0;
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.receipt-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem 1rem;
+  margin: 1rem 0;
+}
+
+.receipt-meta div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.receipt-meta dt {
+  color: var(--muted);
+}
+
+.receipt-meta dd {
+  margin: 0;
+}
+
+.receipt-items,
+.receipt-taxes,
+.receipt-payments {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.receipt-row,
+.tax-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 90px 90px;
+  gap: 0.5rem;
+  text-align: right;
+}
+
+.receipt-row span:first-child,
+.tax-row span:first-child {
+  text-align: left;
+}
+
+.receipt-labels,
+.tax-labels {
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  padding-bottom: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.receipt-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+  border-top: 2px solid var(--text);
+  border-bottom: 2px solid var(--text);
+  padding: 0.75rem 0;
+  font-size: 1.35rem;
+}
+
+.receipt-taxes h3,
+.receipt-payments h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.receipt-payments > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 1rem;
+}
+
+.receipt-payments small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.receipt-panel footer {
+  margin-top: 1.25rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.receipt-link {
+  display: block;
+  margin-top: 1rem;
+  color: var(--primary);
+  text-align: center;
+  font-weight: 700;
+}
+
 .kitchen-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(260px, 1fr));
@@ -981,6 +1206,7 @@ select:focus {
 
   .forms-grid,
   .checkout-layout,
+  .sales-layout,
   .payment-form,
   .cash-actions,
   .cash-metrics,
@@ -990,6 +1216,20 @@ select:focus {
 
   .cash-history article {
     grid-template-columns: 1fr;
+  }
+
+  .sales-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .sales-controls {
+    flex-direction: column;
+  }
+
+  .receipt-row,
+  .tax-row {
+    grid-template-columns: minmax(0, 1fr) 50px 75px 75px;
+    font-size: 0.8rem;
   }
 
   .order-open-form,
@@ -1003,5 +1243,35 @@ select:focus {
 
   .product-price {
     text-align: left;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .app-sidebar,
+  .workspace-header,
+  .sales-controls,
+  .sales-overview,
+  .sales-list,
+  .no-print {
+    display: none !important;
+  }
+
+  .app-frame,
+  .sales-layout {
+    display: block;
+  }
+
+  .workspace {
+    padding: 0;
+  }
+
+  .receipt-panel {
+    max-width: none;
+    border: 0;
+    padding: 0;
   }
 }

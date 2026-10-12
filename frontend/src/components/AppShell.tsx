@@ -10,14 +10,15 @@ type AppShellProps = {
   children: (user: CurrentUser) => ReactNode;
 };
 
-const navigation = [
-  ["/app", "Inicio"],
-  ["/app/tables", "Mesas"],
-  ["/app/catalog", "Catálogo"],
-  ["/app/orders", "Pedidos"],
-  ["/app/kitchen", "Cocina"],
-  ["/app/checkout", "Caja"],
-  ["/app/cash", "Turnos"],
+const navigation: Array<{ href: string; label: string; roles?: string[] }> = [
+  { href: "/app", label: "Inicio" },
+  { href: "/app/tables", label: "Mesas" },
+  { href: "/app/catalog", label: "Catálogo" },
+  { href: "/app/orders", label: "Pedidos" },
+  { href: "/app/kitchen", label: "Cocina", roles: ["OWNER", "MANAGER", "KITCHEN", "SERVER"] },
+  { href: "/app/checkout", label: "Caja", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
+  { href: "/app/cash", label: "Turnos", roles: ["OWNER", "MANAGER", "CASHIER"] },
+  { href: "/app/sales", label: "Ventas", roles: ["OWNER", "MANAGER", "CASHIER"] },
 ];
 
 export function AppShell({ title, children }: AppShellProps) {
@@ -54,13 +55,13 @@ export function AppShell({ title, children }: AppShellProps) {
           <p className="sidebar-organization">{user.organizationName}</p>
         </div>
         <nav className="app-nav" aria-label="Navegación principal">
-          {navigation.map(([href, label]) => (
+          {navigation.filter((item) => !item.roles || item.roles.includes(user.role)).map((item) => (
             <Link
-              key={href}
-              href={href}
-              className={pathname === href ? "active" : undefined}
+              key={item.href}
+              href={item.href}
+              className={pathname === item.href ? "active" : undefined}
             >
-              {label}
+              {item.label}
             </Link>
           ))}
         </nav>

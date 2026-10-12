@@ -20,11 +20,18 @@ directamente en `https://semaialabs.com`.
 - Pagos idempotentes, cambio calculado en el backend y cierre atómico de mesa.
 - Turnos de caja por local con fondo inicial, entradas, salidas y arqueo.
 - Conciliación de efectivo, ventas con tarjeta y registro auditable de diferencias.
+- Historial diario por zona horaria del local y comprobantes operativos imprimibles.
+- Desglose informativo de IVA incluido calculado por el backend.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
 
-El módulo de impresión todavía no contiene lógica operativa.
+La impresión automática en impresoras térmicas todavía no contiene lógica
+operativa; el comprobante actual utiliza el diálogo de impresión del navegador.
+
+Los precios del catálogo se interpretan como precios finales con IVA incluido.
+Los comprobantes actuales son documentos operativos no fiscales y no sustituyen
+una factura ni acreditan cumplimiento tributario.
 
 ## Estructura
 
