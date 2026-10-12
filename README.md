@@ -18,6 +18,8 @@ directamente en `https://semaialabs.com`.
 - KDS con estados nueva, en preparación, lista y completada.
 - Solicitud de cuenta y cobros parciales o completos en efectivo y tarjeta.
 - Pagos idempotentes, cambio calculado en el backend y cierre atómico de mesa.
+- Turnos de caja por local con fondo inicial, entradas, salidas y arqueo.
+- Conciliación de efectivo, ventas con tarjeta y registro auditable de diferencias.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.

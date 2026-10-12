@@ -602,6 +602,20 @@ select:focus {
   gap: 1rem;
 }
 
+.cash-warning {
+  margin: 0 0 1rem;
+  border: 1px solid #e4c77d;
+  border-radius: 8px;
+  background: #fff6dc;
+  color: #694c08;
+  padding: 0.8rem;
+}
+
+.cash-warning a {
+  color: inherit;
+  font-weight: 700;
+}
+
 .checkout-orders,
 .checkout-panel {
   border: 1px solid var(--border);
@@ -750,6 +764,116 @@ select:focus {
   font-size: 0.75rem;
 }
 
+.cash-open-form {
+  max-width: 460px;
+  margin-bottom: 2rem;
+}
+
+.cash-open-form p,
+.cash-actions p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.cash-summary,
+.cash-movements,
+.cash-history {
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1.1rem;
+}
+
+.cash-summary > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.cash-summary h2,
+.cash-movements h2,
+.cash-history h2 {
+  margin: 0.25rem 0;
+  font-size: 1.05rem;
+}
+
+.cash-summary small,
+.cash-summary time,
+.cash-movements time,
+.cash-history small {
+  color: var(--muted);
+}
+
+.cash-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.cash-metric {
+  display: grid;
+  gap: 0.35rem;
+  border-radius: 9px;
+  background: var(--background);
+  padding: 0.85rem;
+}
+
+.cash-metric span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.cash-metric.emphasized {
+  background: var(--surface-soft);
+  color: var(--primary);
+}
+
+.cash-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.cash-movements,
+.cash-history {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.cash-movements > div,
+.cash-history article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.2rem 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.cash-movements time {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+}
+
+.cash-history article {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.cash-history article > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.cash-history .difference {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .kitchen-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(260px, 1fr));
@@ -858,7 +982,13 @@ select:focus {
   .forms-grid,
   .checkout-layout,
   .payment-form,
+  .cash-actions,
+  .cash-metrics,
   .product-row {
+    grid-template-columns: 1fr;
+  }
+
+  .cash-history article {
     grid-template-columns: 1fr;
   }
 
