@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -20,13 +20,19 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtAuthenticationConverter jwtAuthenticationConverter
+    ) throws Exception {
         CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrf.setCookieName("SGR_XSRF");
         csrf.setHeaderName("X-SGR-XSRF");
@@ -40,11 +46,21 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .bearerTokenResolver(new CookieBearerTokenResolver())
-                        .jwt(Customizer.withDefaults()))
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
                         .frameOptions(frame -> frame.deny()))
                 .build();
+    }
+
+    @Bean
+    JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter roles = new JwtGrantedAuthoritiesConverter();
+        roles.setAuthoritiesClaimName("role");
+        roles.setAuthorityPrefix("ROLE_");
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(roles);
+        return converter;
     }
 
     @Bean
