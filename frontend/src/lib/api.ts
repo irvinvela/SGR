@@ -55,6 +55,52 @@ export type Product = {
   version: number;
 };
 
+export type OrderItem = {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  kitchenNote?: string;
+  sentToKitchen: boolean;
+};
+
+export type RestaurantOrder = {
+  id: string;
+  orderNumber: number;
+  locationId: string;
+  tableId: string;
+  tableName: string;
+  areaName: string;
+  status: "OPEN" | "WAITING_PAYMENT" | "PAID" | "CANCELLED";
+  guestCount: number;
+  notes?: string;
+  openedAt: string;
+  version: number;
+  total: number;
+  items: OrderItem[];
+};
+
+export type KitchenRound = {
+  id: string;
+  orderId: string;
+  orderNumber: number;
+  tableName: string;
+  areaName: string;
+  roundNumber: number;
+  status: "QUEUED" | "PREPARING" | "READY" | "COMPLETED";
+  sentAt: string;
+  items: Array<{
+    id: string;
+    productName: string;
+    quantity: number;
+    kitchenNote?: string;
+  }>;
+  version: number;
+};
+
 function cookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
   return document.cookie
@@ -205,6 +251,47 @@ export const changeProductAvailability = (input: {
   available: boolean;
   expectedVersion: number;
 }) => apiRequest<Product>("/api/catalog/products/availability", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
+export const listOrders = (locationId: string) =>
+  apiRequest<RestaurantOrder[]>(`/api/orders?locationId=${encodeURIComponent(locationId)}`);
+
+export const openOrder = (input: {
+  locationId: string;
+  tableId: string;
+  guestCount: number;
+  notes?: string;
+}) => apiRequest<RestaurantOrder>("/api/orders", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const addOrderItem = (input: {
+  orderId: string;
+  productId: string;
+  quantity: number;
+  kitchenNote?: string;
+}) => apiRequest<OrderItem>("/api/orders/items", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const sendOrderToKitchen = (orderId: string, idempotencyKey: string) =>
+  apiRequest<KitchenRound>("/api/orders/send-kitchen", {
+    method: "POST",
+    body: JSON.stringify({ orderId, idempotencyKey }),
+  });
+
+export const listKitchenRounds = (locationId: string) =>
+  apiRequest<KitchenRound[]>(`/api/kitchen/rounds?locationId=${encodeURIComponent(locationId)}`);
+
+export const changeKitchenRoundStatus = (input: {
+  roundId: string;
+  status: "PREPARING" | "READY" | "COMPLETED";
+  expectedVersion: number;
+}) => apiRequest<KitchenRound>("/api/kitchen/rounds/status", {
   method: "PATCH",
   body: JSON.stringify(input),
 });

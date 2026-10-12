@@ -13,11 +13,14 @@ directamente en `https://semaialabs.com`.
 - Auditoría del inicio de sesión.
 - Gestión de salones y mesas con estados operativos y control de concurrencia.
 - Catálogo por local con categorías, productos, precio, IVA y disponibilidad.
+- Pedidos abiertos por mesa con precios e impuestos preservados como snapshots.
+- Rondas de cocina idempotentes: cada envío incluye únicamente ítems nuevos.
+- KDS con estados nueva, en preparación, lista y completada.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
 
-Los módulos de pedidos, cocina, caja e impresión todavía no contienen lógica
+Los módulos de pagos, cierre de mesa e impresión todavía no contienen lógica
 operativa.
 
 ## Estructura
@@ -98,7 +101,6 @@ existente debe mantener un certificado TLS válido.
 ## Próximas fases
 
 1. Productos con grupos de modificadores.
-2. Pedidos idempotentes y rondas de cocina.
-3. KDS en tiempo real.
-4. Pagos y cierre de mesa.
-5. Agente local Windows para impresora USB y cola offline.
+2. Actualización KDS mediante WebSocket.
+3. Pagos y cierre de mesa.
+4. Agente local Windows para impresora USB y cola offline.

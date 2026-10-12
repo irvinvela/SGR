@@ -431,6 +431,16 @@ select:focus {
   white-space: nowrap;
 }
 
+.operational-status {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .product-list {
   display: grid;
   gap: 0.65rem;
@@ -471,6 +481,164 @@ select:focus {
   text-align: center;
 }
 
+.order-open-form {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) 130px minmax(180px, 1fr) 150px;
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.order-open-form h2 {
+  align-self: center;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.order-open-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.orders-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 1rem;
+}
+
+.order-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1.15rem;
+}
+
+.order-card-header,
+.ticket-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.order-card-header small,
+.ticket-heading small {
+  color: var(--muted);
+}
+
+.order-card-header h2,
+.ticket-heading h3 {
+  margin: 0.25rem 0;
+}
+
+.order-items {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-items li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.55rem;
+}
+
+.order-items small,
+.order-items em {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.order-items em {
+  grid-column: 1 / -1;
+}
+
+.inline-order-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 80px;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
+.inline-order-form input[name="kitchenNote"] {
+  grid-column: 1 / -1;
+}
+
+.kitchen-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  align-items: start;
+  gap: 1rem;
+  overflow-x: auto;
+}
+
+.kitchen-column {
+  display: grid;
+  gap: 0.75rem;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 0.85rem;
+}
+
+.kitchen-column > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kitchen-column > header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.kitchen-column > header span {
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.kitchen-ticket {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.kitchen-ticket time {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kitchen-ticket ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kitchen-ticket li {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.kitchen-ticket em {
+  color: var(--danger);
+  font-size: 0.82rem;
+}
+
 @media (max-width: 800px) {
   .login-page {
     grid-template-columns: 1fr;
@@ -499,7 +667,12 @@ select:focus {
   }
 
   .app-nav {
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .app-nav a {
+    white-space: nowrap;
   }
 
   .sidebar-session {
@@ -509,6 +682,15 @@ select:focus {
   .forms-grid,
   .product-row {
     grid-template-columns: 1fr;
+  }
+
+  .order-open-form,
+  .orders-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kitchen-board {
+    grid-template-columns: repeat(3, minmax(280px, 85vw));
   }
 
   .product-price {

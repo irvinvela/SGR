@@ -14,6 +14,8 @@ const navigation = [
   ["/app", "Inicio"],
   ["/app/tables", "Mesas"],
   ["/app/catalog", "Catálogo"],
+  ["/app/orders", "Pedidos"],
+  ["/app/kitchen", "Cocina"],
 ];
 
 export function AppShell({ title, children }: AppShellProps) {
