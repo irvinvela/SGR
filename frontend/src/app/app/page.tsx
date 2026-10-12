@@ -6,7 +6,8 @@ import { AppShell } from "@/components/AppShell";
 const modules = [
   ["/app/tables", "Mesas y salones", "Configura el plano operativo y controla el estado de cada mesa.", "Disponible"],
   ["/app/catalog", "Catálogo", "Administra categorías, productos, precios e impuestos.", "Disponible"],
-  ["#", "Pedidos y cocina", "Crea comandas y envíalas a preparación en tiempo real.", "Próxima fase"],
+  ["/app/orders", "Pedidos", "Abre mesas, añade productos y envía rondas nuevas a cocina.", "Disponible"],
+  ["/app/kitchen", "Cocina", "Gestiona las rondas pendientes, en preparación y listas.", "Disponible"],
 ];
 
 export default function DashboardPage() {

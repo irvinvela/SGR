@@ -157,18 +157,21 @@ export default function TablesPage() {
                   </div>
                   <span>{table.capacity} plazas</span>
                 </div>
-                <label>
-                  Estado
-                  <select
-                    value={table.status}
-                    disabled={busy}
-                    onChange={(event) => updateStatus(table, event.target.value as DiningTable["status"])}
-                  >
-                    {Object.entries(statusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
+                {table.status === "FREE" || table.status === "OUT_OF_SERVICE" ? (
+                  <label>
+                    Estado administrativo
+                    <select
+                      value={table.status}
+                      disabled={busy}
+                      onChange={(event) => updateStatus(table, event.target.value as DiningTable["status"])}
+                    >
+                      <option value="FREE">{statusLabels.FREE}</option>
+                      <option value="OUT_OF_SERVICE">{statusLabels.OUT_OF_SERVICE}</option>
+                    </select>
+                  </label>
+                ) : (
+                  <span className="operational-status">{statusLabels[table.status]}</span>
+                )}
               </article>
             ))}
           </section>

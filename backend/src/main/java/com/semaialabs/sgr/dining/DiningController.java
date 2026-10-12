@@ -170,6 +170,30 @@ public class DiningController {
             @Valid @RequestBody ChangeTableStatusRequest request
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
+        int activeOrders = jdbc.sql("""
+                SELECT COUNT(*)
+                FROM restaurant_orders
+                WHERE table_id = :tableId
+                  AND organization_id = :organizationId
+                  AND closed_at IS NULL
+                """)
+                .param("tableId", request.tableId())
+                .param("organizationId", organizationId)
+                .query(Integer.class)
+                .single();
+        if (activeOrders > 0 && !"OCCUPIED".equals(request.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La mesa tiene un pedido abierto y su estado es gestionado por el pedido"
+            );
+        }
+        if (activeOrders == 0
+                && !List.of("FREE", "OUT_OF_SERVICE").contains(request.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Abra un pedido para ocupar la mesa"
+            );
+        }
         int updated = jdbc.sql("""
                 UPDATE dining_tables
                 SET status = :status,
