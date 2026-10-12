@@ -128,6 +128,37 @@ export type OrderPaymentSummary = {
   payments: Payment[];
 };
 
+export type CashMovement = {
+  id: string;
+  cashShiftId: string;
+  type: "PAID_IN" | "PAID_OUT";
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+  createdAt: string;
+};
+
+export type CashShift = {
+  id: string;
+  locationId: string;
+  status: "OPEN" | "CLOSED";
+  openingAmount: number;
+  openedBy: string;
+  openedAt: string;
+  cashSales: number;
+  cardSales: number;
+  paidIn: number;
+  paidOut: number;
+  expectedCash: number;
+  closingCountedCash?: number;
+  cashDifference?: number;
+  closedBy?: string;
+  closedAt?: string;
+  closingNote?: string;
+  version: number;
+  movements: CashMovement[];
+};
+
 function cookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
   return document.cookie
@@ -342,6 +373,46 @@ export const createPayment = (input: {
   externalReference?: string;
   idempotencyKey: string;
 }) => apiRequest<{ payment: Payment; summary: OrderPaymentSummary }>("/api/payments", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const getCurrentCashShift = (locationId: string) =>
+  apiRequest<{ shift: CashShift | null }>(
+    `/api/cash-shifts/current?locationId=${encodeURIComponent(locationId)}`,
+  );
+
+export const listCashShifts = (locationId: string) =>
+  apiRequest<CashShift[]>(
+    `/api/cash-shifts?locationId=${encodeURIComponent(locationId)}`,
+  );
+
+export const openCashShift = (input: {
+  locationId: string;
+  openingAmount: number;
+  idempotencyKey: string;
+}) => apiRequest<CashShift>("/api/cash-shifts/open", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const createCashMovement = (input: {
+  cashShiftId: string;
+  type: CashMovement["type"];
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+}) => apiRequest<CashShift>("/api/cash-shifts/movements", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const closeCashShift = (input: {
+  cashShiftId: string;
+  countedCash: number;
+  closingNote?: string;
+  expectedVersion: number;
+}) => apiRequest<CashShift>("/api/cash-shifts/close", {
   method: "POST",
   body: JSON.stringify(input),
 });

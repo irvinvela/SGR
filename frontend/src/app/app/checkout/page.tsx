@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -7,6 +8,7 @@ import {
   OrderPaymentSummary,
   RestaurantOrder,
   createPayment,
+  getCurrentCashShift,
   getOrderPaymentSummary,
   listLocations,
   listOrders,
@@ -20,6 +22,7 @@ export default function CheckoutPage() {
   const [orders, setOrders] = useState<RestaurantOrder[]>([]);
   const [orderId, setOrderId] = useState("");
   const [summary, setSummary] = useState<OrderPaymentSummary | null>(null);
+  const [cashShiftOpen, setCashShiftOpen] = useState(false);
   const [method, setMethod] = useState<"CASH" | "CARD">("CASH");
   const [amount, setAmount] = useState("");
   const [tendered, setTendered] = useState("");
@@ -59,8 +62,13 @@ export default function CheckoutPage() {
 
   async function refreshOrders(currentLocationId = locationId) {
     try {
-      const result = (await listOrders(currentLocationId))
+      const [orderResult, shiftResult] = await Promise.all([
+        listOrders(currentLocationId),
+        getCurrentCashShift(currentLocationId),
+      ]);
+      const result = orderResult
         .filter((order) => order.status === "WAITING_PAYMENT");
+      setCashShiftOpen(Boolean(shiftResult.shift));
       setOrders(result);
       const requestedId = new URLSearchParams(window.location.search).get("orderId");
       const nextId = result.some((order) => order.id === requestedId)
@@ -135,6 +143,11 @@ export default function CheckoutPage() {
           </div>
           {error && <p className="error" role="alert">{error}</p>}
           {notice && <p className="success" role="status">{notice}</p>}
+          {!cashShiftOpen && locationId && (
+            <p className="cash-warning">
+              Debe existir un turno abierto para cobrar. <Link href="/app/cash">Ir a turnos de caja</Link>
+            </p>
+          )}
           <div className="checkout-layout">
             <section className="checkout-orders">
               <h2>Cuentas pendientes</h2>
@@ -174,7 +187,7 @@ export default function CheckoutPage() {
                   <div><dt>Pagado</dt><dd>{money.format(summary.paid)}</dd></div>
                   <div className="balance"><dt>Saldo</dt><dd>{money.format(summary.balance)}</dd></div>
                 </dl>
-                {summary.status === "WAITING_PAYMENT" && (
+                {summary.status === "WAITING_PAYMENT" && cashShiftOpen && (
                   <form className="payment-form" onSubmit={submitPayment}>
                     <label>
                       Método

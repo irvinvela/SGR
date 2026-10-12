@@ -138,7 +138,6 @@ public class PaymentController {
             @Valid @RequestBody CreatePaymentRequest request
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
-        OrderLock order = lockOrder(organizationId, request.orderId());
         Optional<PaymentResponse> existing = findPaymentByIdempotency(
                 organizationId,
                 request.idempotencyKey()
@@ -151,6 +150,8 @@ public class PaymentController {
             );
         }
 
+        UUID cashShiftId = lockOpenShiftForOrder(organizationId, request.orderId());
+        OrderLock order = lockOrder(organizationId, request.orderId());
         if (!"WAITING_PAYMENT".equals(order.status()) || order.closedAt() != null) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -178,11 +179,11 @@ public class PaymentController {
                 INSERT INTO order_payments (
                     id, organization_id, location_id, order_id, method,
                     amount, tendered_amount, change_amount, external_reference,
-                    idempotency_key, paid_by_user_id
+                    idempotency_key, paid_by_user_id, cash_shift_id
                 ) VALUES (
                     :id, :organizationId, :locationId, :orderId, :method,
                     :amount, :tenderedAmount, :changeAmount, :externalReference,
-                    :idempotencyKey, :userId
+                    :idempotencyKey, :userId, :cashShiftId
                 )
                 """)
                 .param("id", paymentId)
@@ -196,6 +197,17 @@ public class PaymentController {
                 .param("externalReference", clean(request.externalReference()))
                 .param("idempotencyKey", request.idempotencyKey())
                 .param("userId", TenantContext.userId(jwt))
+                .param("cashShiftId", cashShiftId)
+                .update();
+        jdbc.sql("""
+                UPDATE cash_shifts
+                SET version = version + 1
+                WHERE id = :id
+                  AND organization_id = :organizationId
+                  AND status = 'OPEN'
+                """)
+                .param("id", cashShiftId)
+                .param("organizationId", organizationId)
                 .update();
 
         if (amounts.closesOrder()) {
@@ -265,6 +277,27 @@ public class PaymentController {
                 ))
                 .optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+    }
+
+    private UUID lockOpenShiftForOrder(UUID organizationId, UUID orderId) {
+        return jdbc.sql("""
+                SELECT s.id
+                FROM cash_shifts s WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN restaurant_orders o
+                    ON o.organization_id = s.organization_id
+                   AND o.location_id = s.location_id
+                WHERE o.id = :orderId
+                  AND o.organization_id = :organizationId
+                  AND s.status = 'OPEN'
+                """)
+                .param("orderId", orderId)
+                .param("organizationId", organizationId)
+                .query(UUID.class)
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Abra un turno de caja antes de registrar pagos"
+                ));
     }
 
     private BigDecimal orderTotal(UUID organizationId, UUID orderId) {
