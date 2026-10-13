@@ -88,7 +88,6 @@ export default function LoginPage() {
         </div>
 
         <footer className="brand-footer">
-          <small>SGR · Gestión de restaurantes</small>
           <span>Simple. Preciso. Conectado.</span>
         </footer>
       </section>
@@ -102,7 +101,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <p className="eyebrow">Acceso al sistema</p>
-          <h2 id="login-title">Bienvenido a SGR</h2>
+          <h2 id="login-title">Bienvenido</h2>
           <p>
             Ingresa con las credenciales asignadas a tu restaurante.
           </p>

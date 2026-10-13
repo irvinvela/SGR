@@ -281,7 +281,7 @@ select {
 .brand-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
   color: #91ada0;
   font-size: 0.7rem;
