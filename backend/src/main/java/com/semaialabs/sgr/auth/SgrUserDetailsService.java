@@ -27,6 +27,7 @@ public class SgrUserDetailsService implements UserDetailsService {
                     u.display_name,
                     u.active,
                     u.locked_until,
+                    u.token_version,
                     o.id AS organization_id,
                     o.name AS organization_name,
                     uo.role
@@ -49,6 +50,7 @@ public class SgrUserDetailsService implements UserDetailsService {
                         rs.getObject("organization_id", UUID.class),
                         rs.getString("organization_name"),
                         rs.getString("role"),
+                        rs.getLong("token_version"),
                         rs.getBoolean("active"),
                         rs.getTimestamp("locked_until") == null
                                 || rs.getTimestamp("locked_until").toInstant().isBefore(java.time.Instant.now())

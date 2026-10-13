@@ -1,6 +1,7 @@
 package com.semaialabs.sgr.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.semaialabs.sgr.auth.ActiveMembershipTokenValidator;
 import com.semaialabs.sgr.auth.CookieBearerTokenResolver;
 import com.semaialabs.sgr.auth.SgrUserDetailsService;
 import java.util.Base64;
@@ -8,6 +9,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -18,6 +20,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -93,8 +96,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey key) {
-        return NimbusJwtDecoder.withSecretKey(key).build();
+    JwtDecoder jwtDecoder(
+            SecretKey key,
+            SecurityProperties properties,
+            ActiveMembershipTokenValidator membershipValidator
+    ) {
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).build();
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(properties.issuer()),
+                membershipValidator
+        ));
+        return decoder;
     }
 
     @Bean
