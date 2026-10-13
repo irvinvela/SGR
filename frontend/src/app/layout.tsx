@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SGR | Semaia Labs",
+  title: "Semaia Labs",
   description: "Sistema de gestión de restaurantes",
   robots: {
     index: false,
