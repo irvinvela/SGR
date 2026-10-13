@@ -202,11 +202,17 @@ select {
   width: min(100%, 430px);
 }
 
+.login-access-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
 .login-badge {
   display: grid;
   width: 3rem;
   height: 3rem;
-  margin-bottom: 1.75rem;
   border: 1px solid #cee0d5;
   border-radius: 14px;
   background: #eaf4ee;
@@ -236,6 +242,10 @@ select {
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+}
+
+.login-access-label .eyebrow {
+  margin: 0;
 }
 
 .login-card h2 {
@@ -1648,10 +1658,6 @@ select:focus {
   .login-panel {
     min-height: 560px;
     padding: 3rem 1.5rem;
-  }
-
-  .login-badge {
-    margin-bottom: 1.25rem;
   }
 
   .dashboard-grid {
