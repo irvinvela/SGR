@@ -52,7 +52,7 @@ export default function LoginPage() {
               <span aria-hidden="true" />
               Gestiona
             </p>
-            <h1>Tu restaurante.</h1>
+            <h1>TU RESTAURANTE</h1>
             <p>
               Coordina sala, cocina y caja desde una plataforma creada para
               que cada servicio fluya con claridad.
