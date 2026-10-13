@@ -206,6 +206,7 @@ select {
 .login-access-label {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
@@ -254,6 +255,7 @@ select {
   font-size: clamp(2rem, 3vw, 2.6rem);
   font-weight: 700;
   letter-spacing: -0.05em;
+  text-align: center;
 }
 
 .form-field {
