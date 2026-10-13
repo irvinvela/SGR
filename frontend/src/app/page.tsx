@@ -37,13 +37,13 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="brand-panel" aria-label="SGR de Semai Labs">
+      <section className="brand-panel" aria-label="SGR de Semaia Labs">
         <div className="brand-glow brand-glow-top" aria-hidden="true" />
         <div className="brand-glow brand-glow-bottom" aria-hidden="true" />
 
         <header className="brand-header">
           <span className="brand-mark" aria-hidden="true">S</span>
-          <span className="brand">Semai Labs</span>
+          <span className="brand">Semaia Labs</span>
         </header>
 
         <div className="brand-content">
@@ -52,7 +52,7 @@ export default function LoginPage() {
               <span aria-hidden="true" />
               Operación conectada
             </p>
-            <h1>Tu restaurante.<br />Una sola operación.</h1>
+            <h1>Tu restaurante.</h1>
             <p>
               Coordina sala, cocina y caja desde una plataforma creada para
               que cada servicio fluya con claridad.

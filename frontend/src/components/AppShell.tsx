@@ -53,7 +53,7 @@ export function AppShell({ title, children }: AppShellProps) {
     <div className="app-frame">
       <aside className="app-sidebar">
         <div>
-          <div className="brand">Semai Labs</div>
+          <div className="brand">Semaia Labs</div>
           <p className="sidebar-organization">{user.organizationName}</p>
         </div>
         <nav className="app-nav" aria-label="Navegación principal">
