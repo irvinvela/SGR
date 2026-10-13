@@ -77,9 +77,6 @@ export default function LoginPage() {
             <p className="eyebrow">Acceso al sistema</p>
           </div>
           <h2 id="login-title">Bienvenido</h2>
-          <p>
-            Ingresa con las credenciales asignadas a tu restaurante.
-          </p>
 
           <form onSubmit={submit}>
             <div className="form-field">
