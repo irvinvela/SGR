@@ -176,108 +176,6 @@ select {
   line-height: 1.65;
 }
 
-.operations-preview {
-  width: min(100%, 610px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  background: rgba(7, 30, 22, 0.45);
-  box-shadow: 0 24px 60px rgba(3, 20, 14, 0.22);
-  padding: 1.15rem;
-  backdrop-filter: blur(10px);
-}
-
-.preview-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.2rem 0.25rem 1rem;
-}
-
-.preview-heading > div,
-.preview-modules p {
-  display: grid;
-  gap: 0.25rem;
-  margin: 0;
-}
-
-.preview-heading span {
-  color: #9fbbae;
-  font-size: 0.68rem;
-  font-weight: 750;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.preview-heading strong {
-  font-size: 0.95rem;
-}
-
-.preview-status {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: 1px solid rgba(121, 215, 167, 0.2);
-  border-radius: 999px;
-  background: rgba(121, 215, 167, 0.08);
-  padding: 0.42rem 0.65rem;
-  color: #bfe8d1 !important;
-  letter-spacing: 0.06em !important;
-}
-
-.preview-status i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #79d7a7;
-}
-
-.preview-modules {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.55rem;
-}
-
-.preview-modules > div {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.7rem;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.055);
-  padding: 0.75rem;
-}
-
-.module-icon {
-  display: grid;
-  flex: 0 0 auto;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 8px;
-  background: rgba(121, 215, 167, 0.13);
-  place-items: center;
-  color: #9de1bb;
-  font-size: 0.62rem;
-  font-weight: 800;
-}
-
-.preview-modules strong,
-.preview-modules small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.preview-modules strong {
-  font-size: 0.75rem;
-}
-
-.preview-modules small {
-  color: #9fbbae;
-  font-size: 0.65rem;
-}
-
 .brand-footer {
   display: flex;
   align-items: center;
@@ -1713,14 +1611,6 @@ select:focus {
   .brand-panel {
     padding: 2.25rem;
   }
-
-  .preview-modules {
-    grid-template-columns: 1fr;
-  }
-
-  .preview-modules > div:nth-child(3) {
-    display: none;
-  }
 }
 
 @media (max-width: 800px) {
@@ -1751,7 +1641,6 @@ select:focus {
     font-size: 0.95rem;
   }
 
-  .operations-preview,
   .brand-footer {
     display: none;
   }
