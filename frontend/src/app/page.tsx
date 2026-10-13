@@ -58,33 +58,6 @@ export default function LoginPage() {
               que cada servicio fluya con claridad.
             </p>
           </div>
-
-          <div className="operations-preview" aria-label="Módulos conectados de SGR">
-            <div className="preview-heading">
-              <div>
-                <span>SGR</span>
-                <strong>Todo en un mismo lugar</strong>
-              </div>
-              <span className="preview-status">
-                <i aria-hidden="true" />
-                Conectado
-              </span>
-            </div>
-            <div className="preview-modules">
-              <div>
-                <span className="module-icon" aria-hidden="true">01</span>
-                <p><strong>Mesas y pedidos</strong><small>Servicio coordinado</small></p>
-              </div>
-              <div>
-                <span className="module-icon" aria-hidden="true">02</span>
-                <p><strong>Cocina</strong><small>Comandas visibles</small></p>
-              </div>
-              <div>
-                <span className="module-icon" aria-hidden="true">03</span>
-                <p><strong>Caja</strong><small>Cierres controlados</small></p>
-              </div>
-            </div>
-          </div>
         </div>
 
         <footer className="brand-footer">
