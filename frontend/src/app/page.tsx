@@ -67,13 +67,15 @@ export default function LoginPage() {
 
       <section className="login-panel" aria-labelledby="login-title">
         <div className="login-card">
-          <div className="login-badge" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 3 5.5 5.8v5.4c0 4.1 2.7 7.8 6.5 9 3.8-1.2 6.5-4.9 6.5-9V5.8L12 3Z" />
-              <path d="m9.3 11.8 1.8 1.8 3.8-4" />
-            </svg>
+          <div className="login-access-label">
+            <div className="login-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3 5.5 5.8v5.4c0 4.1 2.7 7.8 6.5 9 3.8-1.2 6.5-4.9 6.5-9V5.8L12 3Z" />
+                <path d="m9.3 11.8 1.8 1.8 3.8-4" />
+              </svg>
+            </div>
+            <p className="eyebrow">Acceso al sistema</p>
           </div>
-          <p className="eyebrow">Acceso al sistema</p>
           <h2 id="login-title">Bienvenido</h2>
           <p>
             Ingresa con las credenciales asignadas a tu restaurante.
