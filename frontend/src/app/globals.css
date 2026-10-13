@@ -162,7 +162,7 @@ select {
 .brand-copy h1 {
   max-width: 760px;
   margin: 0 0 1.5rem;
-  font-size: clamp(2.8rem, 4.1vw, 4.4rem);
+  font-size: clamp(2.6rem, 3.65vw, 3.95rem);
   font-weight: 650;
   line-height: 0.98;
   letter-spacing: -0.05em;
