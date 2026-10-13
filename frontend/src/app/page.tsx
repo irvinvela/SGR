@@ -50,7 +50,7 @@ export default function LoginPage() {
           <div className="brand-copy">
             <p className="brand-kicker">
               <span aria-hidden="true" />
-              Operación conectada
+              Gestiona
             </p>
             <h1>Tu restaurante.</h1>
             <p>
