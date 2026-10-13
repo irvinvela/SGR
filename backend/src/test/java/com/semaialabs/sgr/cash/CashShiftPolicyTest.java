@@ -12,18 +12,20 @@ class CashShiftPolicyTest {
         CashShiftPolicy.Reconciliation result = CashShiftPolicy.reconcile(
                 new BigDecimal("100.00"),
                 new BigDecimal("250.00"),
+                new BigDecimal("10.00"),
                 new BigDecimal("20.00"),
                 new BigDecimal("30.00"),
-                new BigDecimal("338.50")
+                new BigDecimal("328.50")
         );
 
-        assertThat(result.expectedCash()).isEqualByComparingTo("340.00");
+        assertThat(result.expectedCash()).isEqualByComparingTo("330.00");
         assertThat(result.difference()).isEqualByComparingTo("-1.50");
     }
 
     @Test
     void rejectsNegativeCount() {
         assertThatThrownBy(() -> CashShiftPolicy.reconcile(
+                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
@@ -37,6 +39,7 @@ class CashShiftPolicyTest {
     void rejectsPaidOutAboveExpectedCash() {
         assertThatThrownBy(() -> CashShiftPolicy.reconcile(
                 new BigDecimal("10.00"),
+                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 new BigDecimal("10.01"),

@@ -74,7 +74,7 @@ export type RestaurantOrder = {
   tableId: string;
   tableName: string;
   areaName: string;
-  status: "OPEN" | "WAITING_PAYMENT" | "PAID" | "CANCELLED";
+  status: "OPEN" | "WAITING_PAYMENT" | "PAID" | "PARTIALLY_REFUNDED" | "REFUNDED" | "CANCELLED";
   guestCount: number;
   notes?: string;
   openedAt: string;
@@ -106,6 +106,8 @@ export type Payment = {
   orderId: string;
   method: "CASH" | "CARD";
   amount: number;
+  refundedAmount: number;
+  refundableAmount: number;
   tenderedAmount?: number;
   changeAmount: number;
   externalReference?: string;
@@ -147,6 +149,8 @@ export type CashShift = {
   openedAt: string;
   cashSales: number;
   cardSales: number;
+  cashRefunds: number;
+  cardRefunds: number;
   paidIn: number;
   paidOut: number;
   expectedCash: number;
@@ -165,6 +169,8 @@ export type Sale = {
   tableName: string;
   areaName: string;
   closedAt: string;
+  grossTotal: number;
+  refundedTotal: number;
   total: number;
   cashTotal: number;
   cardTotal: number;
@@ -178,6 +184,8 @@ export type DailySales = {
   currency: string;
   orderCount: number;
   grossSales: number;
+  refunds: number;
+  netSales: number;
   cashSales: number;
   cardSales: number;
   sales: Sale[];
@@ -190,6 +198,7 @@ export type SalesReceipt = {
   disclaimer: string;
   orderId: string;
   orderNumber: number;
+  status: RestaurantOrder["status"];
   organizationName: string;
   locationId: string;
   locationName: string;
@@ -201,6 +210,8 @@ export type SalesReceipt = {
   openedBy: string;
   openedAt: string;
   closedAt: string;
+  grossTotal: number;
+  refundedTotal: number;
   total: number;
   items: Array<{
     productName: string;
@@ -217,12 +228,23 @@ export type SalesReceipt = {
     grossAmount: number;
   }>;
   payments: Array<{
+    id: string;
     method: "CASH" | "CARD";
     amount: number;
+    refundedAmount: number;
+    refundableAmount: number;
     tenderedAmount?: number;
     changeAmount: number;
     externalReference?: string;
     paidAt: string;
+  }>;
+  refunds: Array<{
+    id: string;
+    paymentId: string;
+    method: "CASH" | "CARD";
+    amount: number;
+    reason: string;
+    refundedAt: string;
   }>;
 };
 
@@ -409,6 +431,12 @@ export const sendOrderToKitchen = (orderId: string, idempotencyKey: string) =>
     body: JSON.stringify({ orderId, idempotencyKey }),
   });
 
+export const cancelOrder = (orderId: string, reason: string) =>
+  apiRequest<RestaurantOrder>("/api/orders/cancel", {
+    method: "POST",
+    body: JSON.stringify({ orderId, reason }),
+  });
+
 export const listKitchenRounds = (locationId: string) =>
   apiRequest<KitchenRound[]>(`/api/kitchen/rounds?locationId=${encodeURIComponent(locationId)}`);
 
@@ -493,3 +521,18 @@ export const getSalesReceipt = (orderId: string) =>
   apiRequest<SalesReceipt>(
     `/api/sales/receipt?orderId=${encodeURIComponent(orderId)}`,
   );
+
+export const createRefund = (input: {
+  paymentId: string;
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+}) => apiRequest<{
+  refund: SalesReceipt["refunds"][number];
+  paymentRefundable: number;
+  orderRefunded: number;
+  orderStatus: RestaurantOrder["status"];
+}>("/api/refunds", {
+  method: "POST",
+  body: JSON.stringify(input),
+});

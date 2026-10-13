@@ -167,6 +167,8 @@ export default function CashPage() {
                   <Metric label="Fondo inicial" value={current.openingAmount} />
                   <Metric label="Ventas en efectivo" value={current.cashSales} />
                   <Metric label="Ventas con tarjeta" value={current.cardSales} />
+                  <Metric label="Reembolsos en efectivo" value={-current.cashRefunds} />
+                  <Metric label="Reembolsos en tarjeta" value={-current.cardRefunds} />
                   <Metric label="Entradas" value={current.paidIn} />
                   <Metric label="Salidas" value={current.paidOut} />
                   <Metric label="Efectivo esperado" value={current.expectedCash} emphasized />
@@ -232,7 +234,11 @@ export default function CashPage() {
                   <strong>{new Date(shift.openedAt).toLocaleDateString("es-ES")}</strong>
                   <small>{shift.openedBy} · {shift.closedBy}</small>
                 </div>
-                <span>Ventas {money.format(shift.cashSales + shift.cardSales)}</span>
+                <span>
+                  Neto {money.format(
+                    shift.cashSales + shift.cardSales - shift.cashRefunds - shift.cardRefunds,
+                  )}
+                </span>
                 <span className={(shift.cashDifference ?? 0) === 0 ? "" : "difference"}>
                   Diferencia {money.format(shift.cashDifference ?? 0)}
                 </span>

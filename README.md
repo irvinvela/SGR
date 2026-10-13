@@ -22,6 +22,8 @@ directamente en `https://semaialabs.com`.
 - Conciliación de efectivo, ventas con tarjeta y registro auditable de diferencias.
 - Historial diario por zona horaria del local y comprobantes operativos imprimibles.
 - Desglose informativo de IVA incluido calculado por el backend.
+- Anulaciones de pedidos y reembolsos parciales o completos con autorización,
+  idempotencia, turno de caja y auditoría.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
@@ -32,6 +34,9 @@ operativa; el comprobante actual utiliza el diálogo de impresión del navegador
 Los precios del catálogo se interpretan como precios finales con IVA incluido.
 Los comprobantes actuales son documentos operativos no fiscales y no sustituyen
 una factura ni acreditan cumplimiento tributario.
+
+Los reembolsos con tarjeta registran la corrección dentro de SGR, pero no
+ejecutan por sí mismos una devolución en el terminal o proveedor de pagos.
 
 ## Estructura
 

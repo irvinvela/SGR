@@ -10,6 +10,7 @@ import {
   Product,
   RestaurantOrder,
   addOrderItem,
+  cancelOrder,
   listLocations,
   listOrders,
   listProducts,
@@ -134,6 +135,25 @@ export default function OrdersPage() {
     }
   }
 
+  async function cancel(
+    event: FormEvent<HTMLFormElement>,
+    orderId: string,
+  ) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const reason = String(new FormData(formElement).get("reason"));
+    setBusy(true);
+    try {
+      await cancelOrder(orderId, reason);
+      formElement.reset();
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo anular el pedido");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const freeTables = tables.filter((table) => table.status === "FREE");
 
   return (
@@ -225,6 +245,12 @@ export default function OrdersPage() {
                     <Link className="checkout-link" href={`/app/checkout?orderId=${order.id}`}>
                       Cobrar pedido
                     </Link>
+                  )}
+                  {["OWNER", "MANAGER"].includes(user.role) && (
+                    <form className="cancel-order-form" onSubmit={(event) => cancel(event, order.id)}>
+                      <input name="reason" maxLength={500} placeholder="Motivo de anulación" required />
+                      <button className="danger-button" disabled={busy}>Anular pedido</button>
+                    </form>
                   )}
                 </article>
               );

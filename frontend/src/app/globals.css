@@ -141,7 +141,8 @@ select {
 }
 
 .primary-button,
-.secondary-button {
+.secondary-button,
+.danger-button {
   min-height: 46px;
   border: 0;
   border-radius: 10px;
@@ -169,6 +170,16 @@ select {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
+}
+
+.danger-button {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.danger-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .error {
@@ -593,6 +604,15 @@ select:focus {
   text-align: center;
   text-decoration: none;
   font-weight: 700;
+}
+
+.cancel-order-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
 }
 
 .checkout-layout {
@@ -1063,8 +1083,23 @@ select:focus {
   font-size: 1.35rem;
 }
 
+.receipt-adjustment {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 1rem;
+  margin-top: 0.65rem;
+  color: var(--danger);
+}
+
+.receipt-adjustment span:last-of-type,
+.receipt-adjustment strong:last-child {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
 .receipt-taxes h3,
-.receipt-payments h3 {
+.receipt-payments h3,
+.receipt-refunds h3 {
   margin: 0;
   font-size: 0.9rem;
 }
@@ -1078,6 +1113,35 @@ select:focus {
 .receipt-payments small {
   grid-column: 1 / -1;
   color: var(--muted);
+}
+
+.refund-form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 100px minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0.6rem;
+}
+
+.refund-form small {
+  grid-column: 1 / -1;
+  color: var(--danger);
+}
+
+.receipt-refunds {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.8rem;
+}
+
+.receipt-refunds > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  color: var(--danger);
+  font-size: 0.82rem;
 }
 
 .receipt-panel footer {
@@ -1230,6 +1294,11 @@ select:focus {
   .tax-row {
     grid-template-columns: minmax(0, 1fr) 50px 75px 75px;
     font-size: 0.8rem;
+  }
+
+  .refund-form,
+  .cancel-order-form {
+    grid-template-columns: 1fr;
   }
 
   .order-open-form,

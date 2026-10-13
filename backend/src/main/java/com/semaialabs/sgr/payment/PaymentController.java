@@ -316,11 +316,21 @@ public class PaymentController {
 
     private BigDecimal paidTotal(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
-                SELECT COALESCE(SUM(amount), 0)
-                FROM order_payments
-                WHERE organization_id = :organizationId
-                  AND order_id = :orderId
-                  AND status = 'COMPLETED'
+                SELECT
+                    COALESCE((
+                        SELECT SUM(amount)
+                        FROM order_payments
+                        WHERE organization_id = :organizationId
+                          AND order_id = :orderId
+                          AND status = 'COMPLETED'
+                    ), 0)
+                    -
+                    COALESCE((
+                        SELECT SUM(amount)
+                        FROM payment_refunds
+                        WHERE organization_id = :organizationId
+                          AND order_id = :orderId
+                    ), 0)
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", orderId)
@@ -385,12 +395,17 @@ public class PaymentController {
 
     private List<PaymentResponse> listPayments(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
-                SELECT id, order_id, method, amount, tendered_amount,
-                       change_amount, external_reference, idempotency_key,
-                       status, paid_at
-                FROM order_payments
-                WHERE organization_id = :organizationId AND order_id = :orderId
-                ORDER BY paid_at, id
+                SELECT p.id, p.order_id, p.method, p.amount, p.tendered_amount,
+                       p.change_amount, p.external_reference, p.idempotency_key,
+                       p.status, p.paid_at,
+                       COALESCE((
+                           SELECT SUM(r.amount) FROM payment_refunds r
+                           WHERE r.organization_id = :organizationId
+                             AND r.payment_id = p.id
+                       ), 0) AS refunded_amount
+                FROM order_payments p
+                WHERE p.organization_id = :organizationId AND p.order_id = :orderId
+                ORDER BY p.paid_at, p.id
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", orderId)
@@ -400,11 +415,16 @@ public class PaymentController {
 
     private PaymentResponse findPayment(UUID organizationId, UUID paymentId) {
         return jdbc.sql("""
-                SELECT id, order_id, method, amount, tendered_amount,
-                       change_amount, external_reference, idempotency_key,
-                       status, paid_at
-                FROM order_payments
-                WHERE id = :id AND organization_id = :organizationId
+                SELECT p.id, p.order_id, p.method, p.amount, p.tendered_amount,
+                       p.change_amount, p.external_reference, p.idempotency_key,
+                       p.status, p.paid_at,
+                       COALESCE((
+                           SELECT SUM(r.amount) FROM payment_refunds r
+                           WHERE r.organization_id = :organizationId
+                             AND r.payment_id = p.id
+                       ), 0) AS refunded_amount
+                FROM order_payments p
+                WHERE p.id = :id AND p.organization_id = :organizationId
                 """)
                 .param("id", paymentId)
                 .param("organizationId", organizationId)
@@ -414,11 +434,15 @@ public class PaymentController {
 
     private PaymentResponse mapPayment(java.sql.ResultSet rs) throws java.sql.SQLException {
         Timestamp paidAt = rs.getTimestamp("paid_at");
+        BigDecimal amount = rs.getBigDecimal("amount");
+        BigDecimal refundedAmount = rs.getBigDecimal("refunded_amount");
         return new PaymentResponse(
                 rs.getObject("id", UUID.class),
                 rs.getObject("order_id", UUID.class),
                 rs.getString("method"),
-                rs.getBigDecimal("amount"),
+                amount,
+                refundedAmount,
+                amount.subtract(refundedAmount),
                 rs.getBigDecimal("tendered_amount"),
                 rs.getBigDecimal("change_amount"),
                 rs.getString("external_reference"),
@@ -489,6 +513,8 @@ public class PaymentController {
             UUID orderId,
             String method,
             BigDecimal amount,
+            BigDecimal refundedAmount,
+            BigDecimal refundableAmount,
             BigDecimal tenderedAmount,
             BigDecimal changeAmount,
             String externalReference,

@@ -179,6 +179,7 @@ public class CashShiftController {
             ShiftTotals totals = calculateTotals(organizationId, request.cashShiftId());
             BigDecimal availableCash = shift.openingAmount()
                     .add(totals.cashSales())
+                    .subtract(totals.cashRefunds())
                     .add(totals.paidIn())
                     .subtract(totals.paidOut());
             if (request.amount().compareTo(availableCash) > 0) {
@@ -269,6 +270,7 @@ public class CashShiftController {
             reconciliation = CashShiftPolicy.reconcile(
                     shift.openingAmount(),
                     totals.cashSales(),
+                    totals.cashRefunds(),
                     totals.paidIn(),
                     totals.paidOut(),
                     request.countedCash()
@@ -285,6 +287,8 @@ public class CashShiftController {
                     cash_difference = :difference,
                     cash_sales_total = :cashSales,
                     card_sales_total = :cardSales,
+                    cash_refunds_total = :cashRefunds,
+                    card_refunds_total = :cardRefunds,
                     paid_in_total = :paidIn,
                     paid_out_total = :paidOut,
                     closed_by_user_id = :userId,
@@ -301,6 +305,8 @@ public class CashShiftController {
                 .param("difference", reconciliation.difference())
                 .param("cashSales", totals.cashSales())
                 .param("cardSales", totals.cardSales())
+                .param("cashRefunds", totals.cashRefunds())
+                .param("cardRefunds", totals.cardRefunds())
                 .param("paidIn", totals.paidIn())
                 .param("paidOut", totals.paidOut())
                 .param("userId", TenantContext.userId(jwt))
@@ -329,6 +335,8 @@ public class CashShiftController {
                        s.opened_at, opener.display_name AS opened_by,
                        s.closing_counted_cash, s.expected_cash, s.cash_difference,
                        s.cash_sales_total, s.card_sales_total,
+                       COALESCE(s.cash_refunds_total, 0) AS cash_refunds_total,
+                       COALESCE(s.card_refunds_total, 0) AS card_refunds_total,
                        s.paid_in_total, s.paid_out_total,
                        s.closed_at, closer.display_name AS closed_by,
                        s.closing_note, s.version
@@ -351,6 +359,8 @@ public class CashShiftController {
                         rs.getBigDecimal("cash_difference"),
                         rs.getBigDecimal("cash_sales_total"),
                         rs.getBigDecimal("card_sales_total"),
+                        rs.getBigDecimal("cash_refunds_total"),
+                        rs.getBigDecimal("card_refunds_total"),
                         rs.getBigDecimal("paid_in_total"),
                         rs.getBigDecimal("paid_out_total"),
                         rs.getTimestamp("closed_at"),
@@ -366,11 +376,17 @@ public class CashShiftController {
                 : new ShiftTotals(
                         row.cashSalesTotal(),
                         row.cardSalesTotal(),
+                        row.cashRefundsTotal(),
+                        row.cardRefundsTotal(),
                         row.paidInTotal(),
                         row.paidOutTotal()
                 );
         BigDecimal expectedCash = "OPEN".equals(row.status())
-                ? row.openingAmount().add(totals.cashSales()).add(totals.paidIn()).subtract(totals.paidOut())
+                ? row.openingAmount()
+                        .add(totals.cashSales())
+                        .subtract(totals.cashRefunds())
+                        .add(totals.paidIn())
+                        .subtract(totals.paidOut())
                 : row.expectedCash();
         return new CashShiftResponse(
                 row.id(),
@@ -381,6 +397,8 @@ public class CashShiftController {
                 row.openedAt().toInstant().toString(),
                 totals.cashSales(),
                 totals.cardSales(),
+                totals.cashRefunds(),
+                totals.cardRefunds(),
                 totals.paidIn(),
                 totals.paidOut(),
                 expectedCash,
@@ -414,6 +432,20 @@ public class CashShiftController {
                           AND p.method = 'CARD'
                     ), 0) AS card_sales,
                     COALESCE((
+                        SELECT SUM(r.amount)
+                        FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.cash_shift_id = :shiftId
+                          AND r.method = 'CASH'
+                    ), 0) AS cash_refunds,
+                    COALESCE((
+                        SELECT SUM(r.amount)
+                        FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.cash_shift_id = :shiftId
+                          AND r.method = 'CARD'
+                    ), 0) AS card_refunds,
+                    COALESCE((
                         SELECT SUM(m.amount)
                         FROM cash_movements m
                         WHERE m.organization_id = :organizationId
@@ -433,6 +465,8 @@ public class CashShiftController {
                 .query((rs, rowNum) -> new ShiftTotals(
                         rs.getBigDecimal("cash_sales"),
                         rs.getBigDecimal("card_sales"),
+                        rs.getBigDecimal("cash_refunds"),
+                        rs.getBigDecimal("card_refunds"),
                         rs.getBigDecimal("paid_in"),
                         rs.getBigDecimal("paid_out")
                 ))
@@ -579,6 +613,8 @@ public class CashShiftController {
     private record ShiftTotals(
             BigDecimal cashSales,
             BigDecimal cardSales,
+            BigDecimal cashRefunds,
+            BigDecimal cardRefunds,
             BigDecimal paidIn,
             BigDecimal paidOut
     ) {
@@ -596,6 +632,8 @@ public class CashShiftController {
             BigDecimal cashDifference,
             BigDecimal cashSalesTotal,
             BigDecimal cardSalesTotal,
+            BigDecimal cashRefundsTotal,
+            BigDecimal cardRefundsTotal,
             BigDecimal paidInTotal,
             BigDecimal paidOutTotal,
             Timestamp closedAt,
@@ -652,6 +690,8 @@ public class CashShiftController {
             String openedAt,
             BigDecimal cashSales,
             BigDecimal cardSales,
+            BigDecimal cashRefunds,
+            BigDecimal cardRefunds,
             BigDecimal paidIn,
             BigDecimal paidOut,
             BigDecimal expectedCash,
