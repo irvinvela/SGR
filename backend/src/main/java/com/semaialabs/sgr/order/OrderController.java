@@ -4,6 +4,7 @@ import com.semaialabs.sgr.audit.AuditService;
 import com.semaialabs.sgr.tenant.TenantContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -21,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -205,6 +207,121 @@ public class OrderController {
 
         audit.record(jwt, "ORDER_ITEM_ADDED", "order_item", id, Map.of("orderId", request.orderId()));
         return findItem(organizationId, id);
+    }
+
+    @PatchMapping("/items")
+    @PreAuthorize(ORDER_ROLES)
+    @Transactional
+    public OrderItemResponse editItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody EditOrderItemRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        OrderItemLock item = lockItem(organizationId, request.itemId());
+        if (!OrderItemPolicy.canEdit(item.orderStatus(), item.sentToKitchen()) || item.voided()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La partida ya no se puede editar"
+            );
+        }
+        if (item.version() != request.expectedVersion()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La partida cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        int updated = jdbc.sql("""
+                UPDATE order_items
+                SET quantity = :quantity,
+                    kitchen_note = :kitchenNote,
+                    version = version + 1
+                WHERE id = :id
+                  AND organization_id = :organizationId
+                  AND version = :expectedVersion
+                  AND sent_to_kitchen_at IS NULL
+                  AND voided_at IS NULL
+                """)
+                .param("quantity", request.quantity())
+                .param("kitchenNote", clean(request.kitchenNote()))
+                .param("id", request.itemId())
+                .param("organizationId", organizationId)
+                .param("expectedVersion", request.expectedVersion())
+                .update();
+        if (updated == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La partida cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        audit.record(
+                jwt,
+                "ORDER_ITEM_EDITED",
+                "order_item",
+                request.itemId(),
+                Map.of("orderId", item.orderId(), "quantity", request.quantity())
+        );
+        return findItem(organizationId, request.itemId());
+    }
+
+    @PostMapping("/items/void")
+    @PreAuthorize(ORDER_ROLES)
+    @Transactional
+    public OrderItemResponse voidItem(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody VoidOrderItemRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        OrderItemLock item = lockItem(organizationId, request.itemId());
+        if (item.voided()) {
+            return findItem(organizationId, request.itemId());
+        }
+        if (item.version() != request.expectedVersion()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La partida cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        if (!OrderItemPolicy.canVoid(
+                item.orderStatus(),
+                item.sentToKitchen(),
+                jwt.getClaimAsString("role")
+        )) {
+            throw new ResponseStatusException(
+                    item.sentToKitchen() ? HttpStatus.FORBIDDEN : HttpStatus.CONFLICT,
+                    item.sentToKitchen()
+                            ? "Solo un gerente puede anular una partida enviada a cocina"
+                            : "La partida ya no se puede anular"
+            );
+        }
+        jdbc.sql("""
+                UPDATE order_items
+                SET voided_at = SYSUTCDATETIME(),
+                    void_reason = :reason,
+                    voided_by_user_id = :userId,
+                    version = version + 1
+                WHERE id = :id
+                  AND organization_id = :organizationId
+                  AND version = :expectedVersion
+                  AND voided_at IS NULL
+                """)
+                .param("reason", request.reason().trim())
+                .param("userId", TenantContext.userId(jwt))
+                .param("id", request.itemId())
+                .param("organizationId", organizationId)
+                .param("expectedVersion", request.expectedVersion())
+                .update();
+        audit.record(
+                jwt,
+                item.sentToKitchen() ? "ORDER_ITEM_VOIDED_AFTER_SEND" : "ORDER_ITEM_REMOVED",
+                "order_item",
+                request.itemId(),
+                Map.of(
+                        "orderId", item.orderId(),
+                        "reason", request.reason().trim(),
+                        "sentToKitchen", item.sentToKitchen()
+                )
+        );
+        return findItem(organizationId, request.itemId());
     }
 
     @PostMapping("/send-kitchen")
@@ -406,6 +523,28 @@ public class OrderController {
         return findOrder(organizationId, request.orderId());
     }
 
+    private OrderItemLock lockItem(UUID organizationId, UUID itemId) {
+        return jdbc.sql("""
+                SELECT i.order_id, i.sent_to_kitchen_at, i.voided_at, i.version,
+                       o.status AS order_status
+                FROM order_items i WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN restaurant_orders o WITH (UPDLOCK, HOLDLOCK)
+                    ON o.id = i.order_id AND o.organization_id = i.organization_id
+                WHERE i.id = :itemId AND i.organization_id = :organizationId
+                """)
+                .param("itemId", itemId)
+                .param("organizationId", organizationId)
+                .query((rs, rowNum) -> new OrderItemLock(
+                        rs.getObject("order_id", UUID.class),
+                        rs.getString("order_status"),
+                        rs.getTimestamp("sent_to_kitchen_at") != null,
+                        rs.getTimestamp("voided_at") != null,
+                        rs.getLong("version")
+                ))
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Partida no encontrada"));
+    }
+
     private UUID requireOpenOrder(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
                 SELECT location_id FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
@@ -479,7 +618,8 @@ public class OrderController {
         return jdbc.sql("""
                 SELECT
                     id, product_id, product_name, sku, quantity,
-                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at
+                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at,
+                    voided_at, void_reason, version
                 FROM order_items
                 WHERE organization_id = :organizationId
                   AND order_id = :orderId
@@ -497,7 +637,10 @@ public class OrderController {
                         rs.getBigDecimal("unit_price"),
                         rs.getBigDecimal("tax_rate"),
                         rs.getString("kitchen_note"),
-                        rs.getTimestamp("sent_to_kitchen_at") != null
+                        rs.getTimestamp("sent_to_kitchen_at") != null,
+                        rs.getTimestamp("voided_at") != null,
+                        rs.getString("void_reason"),
+                        rs.getLong("version")
                 ))
                 .list();
     }
@@ -506,7 +649,8 @@ public class OrderController {
         return jdbc.sql("""
                 SELECT
                     id, product_id, product_name, sku, quantity,
-                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at
+                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at,
+                    voided_at, void_reason, version
                 FROM order_items
                 WHERE id = :id AND organization_id = :organizationId
                 """)
@@ -521,7 +665,10 @@ public class OrderController {
                         rs.getBigDecimal("unit_price"),
                         rs.getBigDecimal("tax_rate"),
                         rs.getString("kitchen_note"),
-                        rs.getTimestamp("sent_to_kitchen_at") != null
+                        rs.getTimestamp("sent_to_kitchen_at") != null,
+                        rs.getTimestamp("voided_at") != null,
+                        rs.getString("void_reason"),
+                        rs.getLong("version")
                 ))
                 .single();
     }
@@ -558,7 +705,8 @@ public class OrderController {
         return jdbc.sql("""
                 SELECT
                     i.id, i.product_id, i.product_name, i.sku, i.quantity,
-                    i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at
+                    i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at,
+                    i.voided_at, i.void_reason, i.version
                 FROM kitchen_round_items ri
                 INNER JOIN order_items i ON i.id = ri.order_item_id
                 WHERE ri.round_id = :roundId AND i.organization_id = :organizationId
@@ -575,7 +723,10 @@ public class OrderController {
                         rs.getBigDecimal("unit_price"),
                         rs.getBigDecimal("tax_rate"),
                         rs.getString("kitchen_note"),
-                        true
+                        true,
+                        rs.getTimestamp("voided_at") != null,
+                        rs.getString("void_reason"),
+                        rs.getLong("version")
                 ))
                 .list();
     }
@@ -588,6 +739,15 @@ public class OrderController {
     }
 
     private record CancelOrderLock(UUID tableId, String status) {
+    }
+
+    private record OrderItemLock(
+            UUID orderId,
+            String orderStatus,
+            boolean sentToKitchen,
+            boolean voided,
+            long version
+    ) {
     }
 
     private record ProductSnapshot(String name, String sku, BigDecimal price, BigDecimal taxRate) {
@@ -604,8 +764,23 @@ public class OrderController {
     public record AddOrderItemRequest(
             @NotNull UUID orderId,
             @NotNull UUID productId,
-            @NotNull @DecimalMin("0.001") BigDecimal quantity,
+            @NotNull @DecimalMin("0.001") @Digits(integer = 7, fraction = 3) BigDecimal quantity,
             @Size(max = 500) String kitchenNote
+    ) {
+    }
+
+    public record EditOrderItemRequest(
+            @NotNull UUID itemId,
+            @NotNull @DecimalMin("0.001") @Digits(integer = 7, fraction = 3) BigDecimal quantity,
+            @Size(max = 500) String kitchenNote,
+            @Min(0) long expectedVersion
+    ) {
+    }
+
+    public record VoidOrderItemRequest(
+            @NotNull UUID itemId,
+            @NotBlank @Size(max = 500) String reason,
+            @Min(0) long expectedVersion
     ) {
     }
 
@@ -630,7 +805,10 @@ public class OrderController {
             BigDecimal unitPrice,
             BigDecimal taxRate,
             String kitchenNote,
-            boolean sentToKitchen
+            boolean sentToKitchen,
+            boolean voided,
+            String voidReason,
+            long version
     ) {
     }
 

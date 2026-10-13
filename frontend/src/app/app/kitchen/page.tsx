@@ -116,9 +116,12 @@ export default function KitchenPage() {
                     </div>
                     <ul>
                       {round.items.map((item) => (
-                        <li key={item.id}>
+                        <li className={item.voided ? "voided" : undefined} key={item.id}>
                           <strong>{item.quantity} × {item.productName}</strong>
                           {item.kitchenNote && <em>{item.kitchenNote}</em>}
+                          {item.voided && (
+                            <em>ANULADO · {item.voidReason}</em>
+                          )}
                         </li>
                       ))}
                     </ul>

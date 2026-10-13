@@ -160,7 +160,8 @@ public class KitchenController {
 
     private List<KitchenItemResponse> listItems(UUID organizationId, UUID roundId) {
         return jdbc.sql("""
-                SELECT i.id, i.product_name, i.quantity, i.kitchen_note
+                SELECT i.id, i.product_name, i.quantity, i.kitchen_note,
+                       i.voided_at, i.void_reason
                 FROM kitchen_round_items ri
                 INNER JOIN order_items i ON i.id = ri.order_item_id
                 WHERE ri.round_id = :roundId AND i.organization_id = :organizationId
@@ -172,7 +173,9 @@ public class KitchenController {
                         rs.getObject("id", UUID.class),
                         rs.getString("product_name"),
                         rs.getBigDecimal("quantity"),
-                        rs.getString("kitchen_note")
+                        rs.getString("kitchen_note"),
+                        rs.getTimestamp("voided_at") != null,
+                        rs.getString("void_reason")
                 ))
                 .list();
     }
@@ -188,7 +191,9 @@ public class KitchenController {
             UUID id,
             String productName,
             BigDecimal quantity,
-            String kitchenNote
+            String kitchenNote,
+            boolean voided,
+            String voidReason
     ) {
     }
 

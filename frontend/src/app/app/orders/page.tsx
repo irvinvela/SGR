@@ -11,6 +11,7 @@ import {
   RestaurantOrder,
   addOrderItem,
   cancelOrder,
+  editOrderItem,
   listLocations,
   listOrders,
   listProducts,
@@ -18,6 +19,7 @@ import {
   openOrder,
   requestOrderPayment,
   sendOrderToKitchen,
+  voidOrderItem,
 } from "@/lib/api";
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
@@ -123,6 +125,50 @@ export default function OrdersPage() {
     }
   }
 
+  async function editItem(
+    event: FormEvent<HTMLFormElement>,
+    item: RestaurantOrder["items"][number],
+  ) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      await editOrderItem({
+        itemId: item.id,
+        quantity: Number(form.get("quantity")),
+        kitchenNote: String(form.get("kitchenNote")),
+        expectedVersion: item.version,
+      });
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo editar la partida");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voidItem(
+    event: FormEvent<HTMLFormElement>,
+    item: RestaurantOrder["items"][number],
+  ) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const reason = String(new FormData(formElement).get("reason"));
+    setBusy(true);
+    try {
+      await voidOrderItem({
+        itemId: item.id,
+        reason,
+        expectedVersion: item.version,
+      });
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo anular la partida");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function requestPayment(order: RestaurantOrder) {
     setBusy(true);
     try {
@@ -207,6 +253,41 @@ export default function OrdersPage() {
                         <span>{money.format(item.quantity * item.unitPrice)}</span>
                         <small>{item.sentToKitchen ? "Enviado" : "Pendiente"}</small>
                         {item.kitchenNote && <em>{item.kitchenNote}</em>}
+                        {order.status === "OPEN" && !item.sentToKitchen && canOperate(user) && (
+                          <form className="item-edit-form" onSubmit={(event) => editItem(event, item)}>
+                            <input
+                              name="quantity"
+                              type="number"
+                              min="0.001"
+                              step="0.001"
+                              defaultValue={item.quantity}
+                              required
+                            />
+                            <input
+                              name="kitchenNote"
+                              maxLength={500}
+                              defaultValue={item.kitchenNote ?? ""}
+                              placeholder="Nota de cocina"
+                            />
+                            <button className="secondary-button" disabled={busy}>Actualizar</button>
+                          </form>
+                        )}
+                        {order.status === "OPEN"
+                          && (!item.sentToKitchen || ["OWNER", "MANAGER"].includes(user.role)) && (
+                          <form className="item-void-form" onSubmit={(event) => voidItem(event, item)}>
+                            <input
+                              name="reason"
+                              maxLength={500}
+                              placeholder={item.sentToKitchen
+                                ? "Motivo obligatorio para cocina"
+                                : "Motivo de retirada"}
+                              required
+                            />
+                            <button className="danger-button" disabled={busy}>
+                              {item.sentToKitchen ? "Anular enviada" : "Quitar"}
+                            </button>
+                          </form>
+                        )}
                       </li>
                     ))}
                   </ul>
