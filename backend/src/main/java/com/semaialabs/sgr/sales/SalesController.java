@@ -55,7 +55,13 @@ public class SalesController {
                         WHERE i.organization_id = :organizationId
                           AND i.order_id = o.id
                           AND i.voided_at IS NULL
-                    ), 0) AS total,
+                    ), 0) AS gross_total,
+                    COALESCE((
+                        SELECT SUM(r.amount)
+                        FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.order_id = o.id
+                    ), 0) AS refund_total,
                     COALESCE((
                         SELECT SUM(p.amount)
                         FROM order_payments p
@@ -63,6 +69,12 @@ public class SalesController {
                           AND p.order_id = o.id
                           AND p.status = 'COMPLETED'
                           AND p.method = 'CASH'
+                    ), 0) - COALESCE((
+                        SELECT SUM(r.amount)
+                        FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.order_id = o.id
+                          AND r.method = 'CASH'
                     ), 0) AS cash_total,
                     COALESCE((
                         SELECT SUM(p.amount)
@@ -71,13 +83,19 @@ public class SalesController {
                           AND p.order_id = o.id
                           AND p.status = 'COMPLETED'
                           AND p.method = 'CARD'
+                    ), 0) - COALESCE((
+                        SELECT SUM(r.amount)
+                        FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.order_id = o.id
+                          AND r.method = 'CARD'
                     ), 0) AS card_total
                 FROM restaurant_orders o
                 INNER JOIN dining_tables t ON t.id = o.table_id
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE o.organization_id = :organizationId
                   AND o.location_id = :locationId
-                  AND o.status = 'PAID'
+                  AND o.status IN ('PAID', 'PARTIALLY_REFUNDED', 'REFUNDED')
                   AND o.closed_at >= :from
                   AND o.closed_at < :to
                 ORDER BY o.closed_at DESC
@@ -86,21 +104,28 @@ public class SalesController {
                 .param("locationId", locationId)
                 .param("from", Timestamp.from(from))
                 .param("to", Timestamp.from(to))
-                .query((rs, rowNum) -> new SaleResponse(
-                        rs.getObject("id", UUID.class),
-                        rs.getLong("order_number"),
-                        rs.getString("table_name"),
-                        rs.getString("area_name"),
-                        rs.getTimestamp("closed_at").toInstant().toString(),
-                        rs.getBigDecimal("total"),
-                        rs.getBigDecimal("cash_total"),
-                        rs.getBigDecimal("card_total")
-                ))
+                .query((rs, rowNum) -> {
+                    BigDecimal gross = rs.getBigDecimal("gross_total");
+                    BigDecimal refunded = rs.getBigDecimal("refund_total");
+                    return new SaleResponse(
+                            rs.getObject("id", UUID.class),
+                            rs.getLong("order_number"),
+                            rs.getString("table_name"),
+                            rs.getString("area_name"),
+                            rs.getTimestamp("closed_at").toInstant().toString(),
+                            gross,
+                            refunded,
+                            gross.subtract(refunded),
+                            rs.getBigDecimal("cash_total"),
+                            rs.getBigDecimal("card_total")
+                    );
+                })
                 .list();
 
-        BigDecimal grossSales = sum(sales.stream().map(SaleResponse::total).toList());
-        BigDecimal cashSales = sum(sales.stream().map(SaleResponse::cashTotal).toList());
-        BigDecimal cardSales = sum(sales.stream().map(SaleResponse::cardTotal).toList());
+        BigDecimal grossSales = sum(sales.stream().map(SaleResponse::grossTotal).toList());
+        DailyTenderTotals tenderTotals = dailyTenderTotals(organizationId, locationId, from, to);
+        BigDecimal refunds = tenderTotals.cashRefunds().add(tenderTotals.cardRefunds());
+        BigDecimal netSales = grossSales.subtract(refunds);
         return new DailySalesResponse(
                 locationId,
                 location.locationName(),
@@ -109,10 +134,64 @@ public class SalesController {
                 location.currency(),
                 sales.size(),
                 grossSales,
-                cashSales,
-                cardSales,
+                refunds,
+                netSales,
+                tenderTotals.cashPayments().subtract(tenderTotals.cashRefunds()),
+                tenderTotals.cardPayments().subtract(tenderTotals.cardRefunds()),
                 sales
         );
+    }
+
+    private DailyTenderTotals dailyTenderTotals(
+            UUID organizationId,
+            UUID locationId,
+            Instant from,
+            Instant to
+    ) {
+        return jdbc.sql("""
+                SELECT
+                    COALESCE((
+                        SELECT SUM(p.amount) FROM order_payments p
+                        WHERE p.organization_id = :organizationId
+                          AND p.location_id = :locationId
+                          AND p.status = 'COMPLETED'
+                          AND p.method = 'CASH'
+                          AND p.paid_at >= :from AND p.paid_at < :to
+                    ), 0) AS cash_payments,
+                    COALESCE((
+                        SELECT SUM(p.amount) FROM order_payments p
+                        WHERE p.organization_id = :organizationId
+                          AND p.location_id = :locationId
+                          AND p.status = 'COMPLETED'
+                          AND p.method = 'CARD'
+                          AND p.paid_at >= :from AND p.paid_at < :to
+                    ), 0) AS card_payments,
+                    COALESCE((
+                        SELECT SUM(r.amount) FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.location_id = :locationId
+                          AND r.method = 'CASH'
+                          AND r.refunded_at >= :from AND r.refunded_at < :to
+                    ), 0) AS cash_refunds,
+                    COALESCE((
+                        SELECT SUM(r.amount) FROM payment_refunds r
+                        WHERE r.organization_id = :organizationId
+                          AND r.location_id = :locationId
+                          AND r.method = 'CARD'
+                          AND r.refunded_at >= :from AND r.refunded_at < :to
+                    ), 0) AS card_refunds
+                """)
+                .param("organizationId", organizationId)
+                .param("locationId", locationId)
+                .param("from", Timestamp.from(from))
+                .param("to", Timestamp.from(to))
+                .query((rs, rowNum) -> new DailyTenderTotals(
+                        rs.getBigDecimal("cash_payments"),
+                        rs.getBigDecimal("card_payments"),
+                        rs.getBigDecimal("cash_refunds"),
+                        rs.getBigDecimal("card_refunds")
+                ))
+                .single();
     }
 
     @GetMapping("/receipt")
@@ -124,7 +203,7 @@ public class SalesController {
         UUID organizationId = TenantContext.organizationId(jwt);
         ReceiptOrder order = jdbc.sql("""
                 SELECT
-                    o.id, o.order_number, o.location_id, o.guest_count,
+                    o.id, o.order_number, o.status, o.location_id, o.guest_count,
                     o.opened_at, o.closed_at,
                     org.name AS organization_name, org.currency,
                     l.name AS location_name, l.timezone,
@@ -138,7 +217,7 @@ public class SalesController {
                 INNER JOIN app_users u ON u.id = o.opened_by_user_id
                 WHERE o.id = :orderId
                   AND o.organization_id = :organizationId
-                  AND o.status = 'PAID'
+                  AND o.status IN ('PAID', 'PARTIALLY_REFUNDED', 'REFUNDED')
                   AND o.closed_at IS NOT NULL
                 """)
                 .param("orderId", orderId)
@@ -146,6 +225,7 @@ public class SalesController {
                 .query((rs, rowNum) -> new ReceiptOrder(
                         rs.getObject("id", UUID.class),
                         rs.getLong("order_number"),
+                        rs.getString("status"),
                         rs.getObject("location_id", UUID.class),
                         rs.getInt("guest_count"),
                         rs.getTimestamp("opened_at").toInstant().toString(),
@@ -167,14 +247,19 @@ public class SalesController {
         List<ReceiptItem> items = listItems(organizationId, orderId);
         List<TaxSummary> taxes = taxSummary(items);
         List<ReceiptPayment> payments = listPayments(organizationId, orderId);
-        BigDecimal total = sum(items.stream().map(ReceiptItem::lineTotal).toList());
+        List<ReceiptRefund> refunds = listRefunds(organizationId, orderId);
+        BigDecimal grossTotal = sum(items.stream().map(ReceiptItem::lineTotal).toList());
+        BigDecimal refundedTotal = sum(refunds.stream().map(ReceiptRefund::amount).toList());
         return new ReceiptResponse(
                 "PAYMENT_RECEIPT",
                 false,
-                "Comprobante de pago no fiscal",
-                "Los precios mostrados incluyen IVA. Este documento no sustituye una factura.",
+                refundedTotal.signum() > 0
+                        ? "Comprobante de pago corregido no fiscal"
+                        : "Comprobante de pago no fiscal",
+                "El IVA mostrado corresponde a la venta original. Este documento no sustituye una factura.",
                 order.id(),
                 order.orderNumber(),
+                order.status(),
                 order.organizationName(),
                 order.locationId(),
                 order.locationName(),
@@ -186,10 +271,13 @@ public class SalesController {
                 order.openedBy(),
                 order.openedAt(),
                 order.closedAt(),
-                total,
+                grossTotal,
+                refundedTotal,
+                grossTotal.subtract(refundedTotal),
                 items,
                 taxes,
-                payments
+                payments,
+                refunds
         );
     }
 
@@ -242,23 +330,56 @@ public class SalesController {
 
     private List<ReceiptPayment> listPayments(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
-                SELECT method, amount, tendered_amount, change_amount,
-                       external_reference, paid_at
-                FROM order_payments
-                WHERE organization_id = :organizationId
-                  AND order_id = :orderId
-                  AND status = 'COMPLETED'
-                ORDER BY paid_at, id
+                SELECT p.id, p.method, p.amount, p.tendered_amount, p.change_amount,
+                       p.external_reference, p.paid_at,
+                       COALESCE((
+                           SELECT SUM(r.amount)
+                           FROM payment_refunds r
+                           WHERE r.organization_id = :organizationId
+                             AND r.payment_id = p.id
+                       ), 0) AS refunded_amount
+                FROM order_payments p
+                WHERE p.organization_id = :organizationId
+                  AND p.order_id = :orderId
+                  AND p.status = 'COMPLETED'
+                ORDER BY p.paid_at, p.id
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", orderId)
-                .query((rs, rowNum) -> new ReceiptPayment(
+                .query((rs, rowNum) -> {
+                    BigDecimal amount = rs.getBigDecimal("amount");
+                    BigDecimal refunded = rs.getBigDecimal("refunded_amount");
+                    return new ReceiptPayment(
+                            rs.getObject("id", UUID.class),
+                            rs.getString("method"),
+                            amount,
+                            refunded,
+                            amount.subtract(refunded),
+                            rs.getBigDecimal("tendered_amount"),
+                            rs.getBigDecimal("change_amount"),
+                            rs.getString("external_reference"),
+                            rs.getTimestamp("paid_at").toInstant().toString()
+                    );
+                })
+                .list();
+    }
+
+    private List<ReceiptRefund> listRefunds(UUID organizationId, UUID orderId) {
+        return jdbc.sql("""
+                SELECT id, payment_id, method, amount, reason, refunded_at
+                FROM payment_refunds
+                WHERE organization_id = :organizationId AND order_id = :orderId
+                ORDER BY refunded_at, id
+                """)
+                .param("organizationId", organizationId)
+                .param("orderId", orderId)
+                .query((rs, rowNum) -> new ReceiptRefund(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("payment_id", UUID.class),
                         rs.getString("method"),
                         rs.getBigDecimal("amount"),
-                        rs.getBigDecimal("tendered_amount"),
-                        rs.getBigDecimal("change_amount"),
-                        rs.getString("external_reference"),
-                        rs.getTimestamp("paid_at").toInstant().toString()
+                        rs.getString("reason"),
+                        rs.getTimestamp("refunded_at").toInstant().toString()
                 ))
                 .list();
     }
@@ -296,9 +417,18 @@ public class SalesController {
     ) {
     }
 
+    private record DailyTenderTotals(
+            BigDecimal cashPayments,
+            BigDecimal cardPayments,
+            BigDecimal cashRefunds,
+            BigDecimal cardRefunds
+    ) {
+    }
+
     private record ReceiptOrder(
             UUID id,
             long orderNumber,
+            String status,
             UUID locationId,
             int guestCount,
             String openedAt,
@@ -319,6 +449,8 @@ public class SalesController {
             String tableName,
             String areaName,
             String closedAt,
+            BigDecimal grossTotal,
+            BigDecimal refundedTotal,
             BigDecimal total,
             BigDecimal cashTotal,
             BigDecimal cardTotal
@@ -333,6 +465,8 @@ public class SalesController {
             String currency,
             int orderCount,
             BigDecimal grossSales,
+            BigDecimal refunds,
+            BigDecimal netSales,
             BigDecimal cashSales,
             BigDecimal cardSales,
             List<SaleResponse> sales
@@ -358,12 +492,25 @@ public class SalesController {
     }
 
     public record ReceiptPayment(
+            UUID id,
             String method,
             BigDecimal amount,
+            BigDecimal refundedAmount,
+            BigDecimal refundableAmount,
             BigDecimal tenderedAmount,
             BigDecimal changeAmount,
             String externalReference,
             String paidAt
+    ) {
+    }
+
+    public record ReceiptRefund(
+            UUID id,
+            UUID paymentId,
+            String method,
+            BigDecimal amount,
+            String reason,
+            String refundedAt
     ) {
     }
 
@@ -374,6 +521,7 @@ public class SalesController {
             String disclaimer,
             UUID orderId,
             long orderNumber,
+            String status,
             String organizationName,
             UUID locationId,
             String locationName,
@@ -385,10 +533,13 @@ public class SalesController {
             String openedBy,
             String openedAt,
             String closedAt,
+            BigDecimal grossTotal,
+            BigDecimal refundedTotal,
             BigDecimal total,
             List<ReceiptItem> items,
             List<TaxSummary> taxes,
-            List<ReceiptPayment> payments
+            List<ReceiptPayment> payments,
+            List<ReceiptRefund> refunds
     ) {
     }
 }

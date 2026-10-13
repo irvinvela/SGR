@@ -8,6 +8,7 @@ import {
   OrderPaymentSummary,
   RestaurantOrder,
   createPayment,
+  createRefund,
   getCurrentCashShift,
   getOrderPaymentSummary,
   listLocations,
@@ -27,6 +28,7 @@ export default function CheckoutPage() {
   const [amount, setAmount] = useState("");
   const [tendered, setTendered] = useState("");
   const [retryKey, setRetryKey] = useState("");
+  const [refundRetryKey, setRefundRetryKey] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -117,6 +119,38 @@ export default function CheckoutPage() {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo registrar el pago");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refundPayment(
+    event: FormEvent<HTMLFormElement>,
+    paymentId: string,
+  ) {
+    event.preventDefault();
+    if (!summary) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const idempotencyKey = refundRetryKey || crypto.randomUUID();
+    setRefundRetryKey(idempotencyKey);
+    setBusy(true);
+    try {
+      await createRefund({
+        paymentId,
+        amount: Number(form.get("amount")),
+        reason: String(form.get("reason")),
+        idempotencyKey,
+      });
+      const nextSummary = await getOrderPaymentSummary(summary.orderId);
+      setSummary(nextSummary);
+      setAmount(String(nextSummary.balance));
+      setRefundRetryKey("");
+      formElement.reset();
+      setNotice("Reembolso registrado.");
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo registrar el reembolso");
     } finally {
       setBusy(false);
     }
@@ -243,11 +277,36 @@ export default function CheckoutPage() {
                         <span>{payment.method === "CASH" ? "Efectivo" : "Tarjeta"}</span>
                         <strong>{money.format(payment.amount)}</strong>
                         <time>{new Date(payment.paidAt).toLocaleString("es-ES")}</time>
+                        {payment.refundedAmount > 0 && (
+                          <small>Reembolsado {money.format(payment.refundedAmount)}</small>
+                        )}
+                        {["OWNER", "MANAGER"].includes(user.role)
+                          && payment.refundableAmount > 0 && (
+                          <form
+                            className="refund-form no-print"
+                            onSubmit={(event) => refundPayment(event, payment.id)}
+                          >
+                            {payment.method === "CARD" && (
+                              <small>Procese primero la devolución en el terminal de tarjeta.</small>
+                            )}
+                            <input
+                              name="amount"
+                              type="number"
+                              min="0.01"
+                              max={payment.refundableAmount}
+                              step="0.01"
+                              defaultValue={payment.refundableAmount}
+                              required
+                            />
+                            <input name="reason" maxLength={500} placeholder="Motivo" required />
+                            <button className="danger-button" disabled={busy}>Reembolsar</button>
+                          </form>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
-                {summary.status === "PAID"
+                {["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(summary.status)
                   && ["OWNER", "MANAGER", "CASHIER"].includes(user.role) && (
                   <Link className="receipt-link no-print" href={`/app/sales?orderId=${summary.orderId}`}>
                     Ver comprobante

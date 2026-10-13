@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -295,6 +296,116 @@ public class OrderController {
         return findRound(organizationId, roundId);
     }
 
+    @PostMapping("/cancel")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
+    @Transactional
+    public OrderResponse cancelOrder(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody CancelOrderRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        jdbc.sql("""
+                SELECT id
+                FROM order_payments WITH (UPDLOCK, HOLDLOCK)
+                WHERE organization_id = :organizationId AND order_id = :orderId
+                """)
+                .param("organizationId", organizationId)
+                .param("orderId", request.orderId())
+                .query(UUID.class)
+                .list();
+        CancelOrderLock order = jdbc.sql("""
+                SELECT table_id, status
+                FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .query((rs, rowNum) -> new CancelOrderLock(
+                        rs.getObject("table_id", UUID.class),
+                        rs.getString("status")
+                ))
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if ("CANCELLED".equals(order.status())) {
+            return findOrder(organizationId, request.orderId());
+        }
+        if (!"OPEN".equals(order.status()) && !"WAITING_PAYMENT".equals(order.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Solo se pueden anular pedidos que todavía no estén cerrados"
+            );
+        }
+        BigDecimal netPaid = jdbc.sql("""
+                SELECT
+                    COALESCE((
+                        SELECT SUM(amount) FROM order_payments
+                        WHERE organization_id = :organizationId
+                          AND order_id = :orderId
+                          AND status = 'COMPLETED'
+                    ), 0)
+                    -
+                    COALESCE((
+                        SELECT SUM(amount) FROM payment_refunds
+                        WHERE organization_id = :organizationId
+                          AND order_id = :orderId
+                    ), 0)
+                """)
+                .param("organizationId", organizationId)
+                .param("orderId", request.orderId())
+                .query(BigDecimal.class)
+                .single();
+        if (netPaid.signum() != 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Reembolse el saldo cobrado antes de anular el pedido"
+            );
+        }
+
+        jdbc.sql("""
+                UPDATE restaurant_orders
+                SET status = 'CANCELLED',
+                    closed_at = SYSUTCDATETIME(),
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .update();
+        jdbc.sql("""
+                UPDATE kitchen_rounds
+                SET status = 'CANCELLED',
+                    completed_at = SYSUTCDATETIME(),
+                    version = version + 1
+                WHERE organization_id = :organizationId
+                  AND order_id = :orderId
+                  AND status IN ('QUEUED', 'PREPARING', 'READY')
+                """)
+                .param("organizationId", organizationId)
+                .param("orderId", request.orderId())
+                .update();
+        jdbc.sql("""
+                UPDATE dining_tables
+                SET status = 'FREE',
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :tableId
+                  AND organization_id = :organizationId
+                  AND status IN ('OCCUPIED', 'WAITING_PAYMENT')
+                """)
+                .param("tableId", order.tableId())
+                .param("organizationId", organizationId)
+                .update();
+        audit.record(
+                jwt,
+                "ORDER_CANCELLED",
+                "restaurant_order",
+                request.orderId(),
+                Map.of("reason", request.reason().trim())
+        );
+        return findOrder(organizationId, request.orderId());
+    }
+
     private UUID requireOpenOrder(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
                 SELECT location_id FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
@@ -476,6 +587,9 @@ public class OrderController {
     private record TableSnapshot(String name, String areaName) {
     }
 
+    private record CancelOrderLock(UUID tableId, String status) {
+    }
+
     private record ProductSnapshot(String name, String sku, BigDecimal price, BigDecimal taxRate) {
     }
 
@@ -498,6 +612,12 @@ public class OrderController {
     public record SendKitchenRequest(
             @NotNull UUID orderId,
             @NotNull UUID idempotencyKey
+    ) {
+    }
+
+    public record CancelOrderRequest(
+            @NotNull UUID orderId,
+            @NotBlank @Size(max = 500) String reason
     ) {
     }
 

@@ -53,7 +53,7 @@ public class KitchenController {
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE r.organization_id = :organizationId
                   AND r.location_id = :locationId
-                  AND r.status <> 'COMPLETED'
+                  AND r.status IN ('QUEUED', 'PREPARING', 'READY')
                 ORDER BY r.sent_at
                 """)
                 .param("organizationId", organizationId)

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
   DailySales,
   Location,
   SalesReceipt,
+  createRefund,
   getDailySales,
   getSalesReceipt,
   listLocations,
@@ -17,6 +18,9 @@ export default function SalesPage() {
   const [businessDate, setBusinessDate] = useState("");
   const [daily, setDaily] = useState<DailySales | null>(null);
   const [receipt, setReceipt] = useState<SalesReceipt | null>(null);
+  const [refundRetryKey, setRefundRetryKey] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -59,12 +63,47 @@ export default function SalesPage() {
     if (location) setBusinessDate(dateInZone(location.timezone));
   }
 
+  async function refundPayment(
+    event: FormEvent<HTMLFormElement>,
+    paymentId: string,
+  ) {
+    event.preventDefault();
+    if (!receipt || !daily) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const idempotencyKey = refundRetryKey || crypto.randomUUID();
+    setRefundRetryKey(idempotencyKey);
+    setBusy(true);
+    try {
+      await createRefund({
+        paymentId,
+        amount: Number(form.get("amount")),
+        reason: String(form.get("reason")),
+        idempotencyKey,
+      });
+      const [nextReceipt, nextDaily] = await Promise.all([
+        getSalesReceipt(receipt.orderId),
+        getDailySales(locationId, businessDate),
+      ]);
+      setReceipt(nextReceipt);
+      setDaily(nextDaily);
+      setRefundRetryKey("");
+      formElement.reset();
+      setNotice("Reembolso registrado.");
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo registrar el reembolso");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const currency = daily?.currency ?? "EUR";
   const money = new Intl.NumberFormat("es-ES", { style: "currency", currency });
 
   return (
     <AppShell title="Ventas">
-      {() => (
+      {(user) => (
         <>
           <div className="sales-controls">
             <label>
@@ -85,13 +124,14 @@ export default function SalesPage() {
             </label>
           </div>
           {error && <p className="error no-print" role="alert">{error}</p>}
+          {notice && <p className="success no-print" role="status">{notice}</p>}
           {daily && (
             <>
               <section className="sales-overview">
-                <Metric label="Ventas" value={money.format(daily.grossSales)} />
+                <Metric label="Ventas netas" value={money.format(daily.netSales)} />
+                <Metric label="Reembolsos" value={money.format(daily.refunds)} />
                 <Metric label="Efectivo" value={money.format(daily.cashSales)} />
                 <Metric label="Tarjeta" value={money.format(daily.cardSales)} />
-                <Metric label="Pedidos" value={String(daily.orderCount)} />
               </section>
               <div className="sales-layout">
                 <section className="sales-list">
@@ -107,6 +147,7 @@ export default function SalesPage() {
                       <strong>{money.format(sale.total)}</strong>
                       <small>
                         #{sale.orderNumber} · {formatDateTime(sale.closedAt, daily.timezone)}
+                        {sale.refundedTotal > 0 && ` · Reembolsado ${money.format(sale.refundedTotal)}`}
                       </small>
                     </button>
                   ))}
@@ -115,7 +156,12 @@ export default function SalesPage() {
                   )}
                 </section>
                 {receipt ? (
-                  <Receipt receipt={receipt} />
+                  <Receipt
+                    receipt={receipt}
+                    canRefund={["OWNER", "MANAGER"].includes(user.role)}
+                    busy={busy}
+                    onRefund={refundPayment}
+                  />
                 ) : (
                   <p className="empty-state receipt-placeholder">
                     Selecciona una venta para consultar su comprobante.
@@ -130,7 +176,12 @@ export default function SalesPage() {
   );
 }
 
-function Receipt({ receipt }: { receipt: SalesReceipt }) {
+function Receipt({ receipt, canRefund, busy, onRefund }: {
+  receipt: SalesReceipt;
+  canRefund: boolean;
+  busy: boolean;
+  onRefund: (event: FormEvent<HTMLFormElement>, paymentId: string) => void;
+}) {
   const money = new Intl.NumberFormat("es-ES", {
     style: "currency",
     currency: receipt.currency,
@@ -167,11 +218,17 @@ function Receipt({ receipt }: { receipt: SalesReceipt }) {
         ))}
       </div>
       <div className="receipt-total">
-        <span>Total</span>
-        <strong>{money.format(receipt.total)}</strong>
+        <span>Total original</span>
+        <strong>{money.format(receipt.grossTotal)}</strong>
       </div>
+      {receipt.refundedTotal > 0 && (
+        <div className="receipt-adjustment">
+          <span>Reembolsado</span><strong>−{money.format(receipt.refundedTotal)}</strong>
+          <span>Neto</span><strong>{money.format(receipt.total)}</strong>
+        </div>
+      )}
       <section className="receipt-taxes">
-        <h3>Desglose de IVA incluido</h3>
+        <h3>Desglose de IVA de la venta original</h3>
         <div className="tax-row tax-labels">
           <span>Tipo</span><span>Base</span><span>IVA</span><span>Bruto</span>
         </div>
@@ -195,9 +252,44 @@ function Receipt({ receipt }: { receipt: SalesReceipt }) {
                 Recibido {money.format(payment.tenderedAmount)} · Cambio {money.format(payment.changeAmount)}
               </small>
             )}
+            {payment.refundedAmount > 0 && (
+              <small>Reembolsado {money.format(payment.refundedAmount)}</small>
+            )}
+            {canRefund && payment.refundableAmount > 0 && (
+              <form
+                className="refund-form no-print"
+                onSubmit={(event) => onRefund(event, payment.id)}
+              >
+                {payment.method === "CARD" && (
+                  <small>Procese primero la devolución en el terminal de tarjeta.</small>
+                )}
+                <input
+                  name="amount"
+                  type="number"
+                  min="0.01"
+                  max={payment.refundableAmount}
+                  step="0.01"
+                  defaultValue={payment.refundableAmount}
+                  required
+                />
+                <input name="reason" maxLength={500} placeholder="Motivo del reembolso" required />
+                <button className="danger-button" disabled={busy}>Reembolsar</button>
+              </form>
+            )}
           </div>
         ))}
       </section>
+      {receipt.refunds.length > 0 && (
+        <section className="receipt-refunds">
+          <h3>Reembolsos</h3>
+          {receipt.refunds.map((refund) => (
+            <div key={refund.id}>
+              <span>{formatDateTime(refund.refundedAt, receipt.timezone)} · {refund.reason}</span>
+              <strong>−{money.format(refund.amount)}</strong>
+            </div>
+          ))}
+        </section>
+      )}
       <footer>{receipt.title.toUpperCase()}</footer>
     </article>
   );
