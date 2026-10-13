@@ -137,8 +137,7 @@ export default function LoginPage() {
             </label>
             {error && <p className="error" role="alert">{error}</p>}
             <button className="primary-button" type="submit" disabled={loading}>
-              <span>{loading ? "Comprobando…" : "Entrar al sistema"}</span>
-              {!loading && <span aria-hidden="true">→</span>}
+              <span>{loading ? "Comprobando…" : "Iniciar sesión"}</span>
             </button>
           </form>
 
