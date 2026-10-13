@@ -1,63 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { CurrentUser, currentUser, logout } from "@/lib/api";
+import Link from "next/link";
+import { AppShell } from "@/components/AppShell";
 
-const modules = [
-  ["Mesas y pedidos", "Abre mesas, registra comandas y controla el estado del servicio."],
-  ["Cocina", "Recibe partidas en tiempo real y coordina su preparación."],
-  ["Caja", "Registra pagos en efectivo o tarjeta y cierra las mesas."],
+const modules: Array<{
+  href: string;
+  title: string;
+  description: string;
+  roles?: string[];
+}> = [
+  { href: "/app/tables", title: "Mesas y salones", description: "Configura el plano operativo y controla el estado de cada mesa." },
+  { href: "/app/catalog", title: "Catálogo", description: "Administra categorías, productos, precios e impuestos." },
+  { href: "/app/orders", title: "Pedidos", description: "Abre mesas, añade productos y envía rondas nuevas a cocina." },
+  { href: "/app/kitchen", title: "Cocina", description: "Gestiona las rondas pendientes, en preparación y listas.", roles: ["OWNER", "MANAGER", "KITCHEN", "SERVER"] },
+  { href: "/app/checkout", title: "Caja", description: "Registra pagos parciales o completos y cierra las mesas.", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
+  { href: "/app/cash", title: "Turnos de caja", description: "Controla fondos, movimientos, arqueos y diferencias.", roles: ["OWNER", "MANAGER", "CASHIER"] },
+  { href: "/app/sales", title: "Ventas", description: "Consulta operaciones diarias y comprobantes de pago.", roles: ["OWNER", "MANAGER", "CASHIER"] },
+  { href: "/app/staff", title: "Personal", description: "Administra usuarios, roles, accesos y contraseñas.", roles: ["OWNER", "MANAGER"] },
 ];
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    currentUser()
-      .then((result) => {
-        if (!result) {
-          router.replace("/");
-          return;
-        }
-        setUser(result);
-      })
-      .catch(() => setError("No se pudo cargar la sesión."));
-  }, [router]);
-
-  async function endSession() {
-    await logout();
-    router.replace("/");
-  }
-
-  if (error) {
-    return <main className="dashboard"><p className="error">{error}</p></main>;
-  }
-  if (!user) {
-    return <main className="dashboard"><p>Cargando sesión…</p></main>;
-  }
-
   return (
-    <main className="dashboard">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">{user.organizationName}</p>
-          <h1>Hola, {user.displayName}</h1>
-        </div>
-        <button className="secondary-button" onClick={endSession}>Cerrar sesión</button>
-      </header>
-
-      <section className="dashboard-grid" aria-label="Módulos">
-        {modules.map(([title, description]) => (
-          <article className="module-card" key={title}>
-            <h2>{title}</h2>
-            <p>{description}</p>
-            <span className="status">Próxima fase</span>
-          </article>
-        ))}
-      </section>
-    </main>
+    <AppShell title="Centro de operaciones">
+      {(user) => (
+        <>
+          <p className="page-intro">Hola, {user.displayName}. Selecciona un área para continuar.</p>
+          <section className="dashboard-grid" aria-label="Módulos">
+            {modules.filter((module) => !module.roles || module.roles.includes(user.role)).map((module) => (
+              <Link className="module-card" href={module.href} key={module.title}>
+                <h2>{module.title}</h2>
+                <p>{module.description}</p>
+                <span className="status">Disponible</span>
+              </Link>
+            ))}
+          </section>
+        </>
+      )}
+    </AppShell>
   );
 }

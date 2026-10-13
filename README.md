@@ -11,12 +11,36 @@ directamente en `https://semaialabs.com`.
 - Protección CSRF para operaciones autenticadas.
 - Modelo inicial multi-restaurante: organizaciones, locales, usuarios y roles.
 - Auditoría del inicio de sesión.
+- Gestión de salones y mesas con estados operativos y control de concurrencia.
+- Catálogo por local con categorías, productos, precio, IVA y disponibilidad.
+- Pedidos abiertos por mesa con precios e impuestos preservados como snapshots.
+- Edición de partidas pendientes y anulaciones auditadas visibles en cocina.
+- Rondas de cocina idempotentes: cada envío incluye únicamente ítems nuevos.
+- KDS con estados nueva, en preparación, lista y completada.
+- Solicitud de cuenta y cobros parciales o completos en efectivo y tarjeta.
+- Pagos idempotentes, cambio calculado en el backend y cierre atómico de mesa.
+- Turnos de caja por local con fondo inicial, entradas, salidas y arqueo.
+- Conciliación de efectivo, ventas con tarjeta y registro auditable de diferencias.
+- Historial diario por zona horaria del local y comprobantes operativos imprimibles.
+- Desglose informativo de IVA incluido calculado por el backend.
+- Anulaciones de pedidos y reembolsos parciales o completos con autorización,
+  idempotencia, turno de caja y auditoría.
+- Administración de personal, roles, estado de acceso y contraseñas.
+- Invalidación inmediata de sesiones al cambiar permisos, desactivar cuentas o
+  restablecer credenciales.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.
 
-Los módulos de mesas, pedidos, cocina, caja e impresión se muestran como
-próximas fases; todavía no contienen lógica operativa.
+La impresión automática en impresoras térmicas todavía no contiene lógica
+operativa; el comprobante actual utiliza el diálogo de impresión del navegador.
+
+Los precios del catálogo se interpretan como precios finales con IVA incluido.
+Los comprobantes actuales son documentos operativos no fiscales y no sustituyen
+una factura ni acreditan cumplimiento tributario.
+
+Los reembolsos con tarjeta registran la corrección dentro de SGR, pero no
+ejecutan por sí mismos una devolución en el terminal o proveedor de pagos.
 
 ## Estructura
 
@@ -95,9 +119,7 @@ existente debe mantener un certificado TLS válido.
 
 ## Próximas fases
 
-1. Salones, mesas y turnos.
-2. Catálogo, categorías, productos y modificadores.
-3. Pedidos idempotentes y rondas de cocina.
-4. KDS en tiempo real.
-5. Pagos y cierre de mesa.
-6. Agente local Windows para impresora USB y cola offline.
+1. Productos con grupos de modificadores.
+2. Actualización KDS mediante WebSocket.
+3. Pagos y cierre de mesa.
+4. Agente local Windows para impresora USB y cola offline.

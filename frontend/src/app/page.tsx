@@ -8,6 +8,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,51 +37,86 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="brand-panel">
-        <div className="brand">Semai Labs</div>
-        <div className="brand-copy">
-          <h1>El restaurante, bajo control.</h1>
-          <p>
-            Pedidos, cocina, mesas y caja conectados en una sola operación,
-            desde cualquier dispositivo autorizado.
-          </p>
+      <section className="brand-panel" aria-label="SGR de Semaia Labs">
+        <div className="brand-glow brand-glow-top" aria-hidden="true" />
+        <div className="brand-glow brand-glow-bottom" aria-hidden="true" />
+
+        <header className="brand-header">
+          <span className="brand-mark" aria-hidden="true">S</span>
+          <span className="brand">Semaia Labs</span>
+        </header>
+
+        <div className="brand-content">
+          <div className="brand-copy">
+            <p className="brand-kicker">
+              <span aria-hidden="true" />
+              Gestiona
+            </p>
+            <h1>TU RESTAURANTE</h1>
+            <p>
+              Coordina sala, cocina y caja desde una plataforma creada para
+              que cada servicio fluya con claridad.
+            </p>
+          </div>
         </div>
-        <small>SGR · Gestión de restaurantes</small>
+
+        <footer className="brand-footer">
+          <span>Simple. Preciso. Conectado.</span>
+        </footer>
       </section>
 
       <section className="login-panel" aria-labelledby="login-title">
         <div className="login-card">
-          <p className="eyebrow">Acceso seguro</p>
-          <h2 id="login-title">Iniciar sesión</h2>
-          <p className="intro">
-            Introduce tus credenciales para acceder a tu restaurante.
-          </p>
+          <h2 id="login-title">Bienvenido</h2>
 
           <form onSubmit={submit}>
             <div className="form-field">
               <label htmlFor="email">Correo electrónico</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
+              <div className="login-input-shell">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6.5h16v11H4z" />
+                  <path d="m4.5 7 7.5 6 7.5-6" />
+                </svg>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="nombre@restaurante.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </div>
             </div>
             <div className="form-field">
               <label htmlFor="password">Contraseña</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                minLength={10}
-                required
-              />
+              <div className="login-input-shell">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="5" y="10" width="14" height="10" rx="2" />
+                  <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10M12 14v2" />
+                </svg>
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  placeholder="Introduce tu contraseña"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  minLength={10}
+                  required
+                />
+                <button
+                  className="password-toggle"
+                  type="button"
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
             </div>
             <label className="remember">
               <input
@@ -92,9 +128,17 @@ export default function LoginPage() {
             </label>
             {error && <p className="error" role="alert">{error}</p>}
             <button className="primary-button" type="submit" disabled={loading}>
-              {loading ? "Comprobando…" : "Entrar"}
+              <span>{loading ? "Comprobando…" : "Iniciar sesión"}</span>
             </button>
           </form>
+
+          <div className="secure-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" />
+            </svg>
+            <span><strong>Conexión protegida</strong> · Tus datos viajan cifrados.</span>
+          </div>
         </div>
       </section>
     </main>
