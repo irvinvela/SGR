@@ -15,6 +15,7 @@ public record SgrUser(
         UUID organizationId,
         String organizationName,
         String role,
+        long tokenVersion,
         boolean active,
         boolean accountNonLocked
 ) implements UserDetails {

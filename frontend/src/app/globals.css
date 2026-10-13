@@ -1163,6 +1163,113 @@ select:focus {
   font-weight: 700;
 }
 
+.staff-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.65fr) minmax(420px, 1.35fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.staff-create {
+  position: sticky;
+  top: 1rem;
+}
+
+.staff-create small,
+.account-panel small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.staff-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.staff-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.staff-card.inactive {
+  opacity: 0.65;
+}
+
+.staff-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.staff-card h2 {
+  margin: 0.25rem 0;
+  font-size: 1.05rem;
+}
+
+.staff-card header small,
+.staff-card > p {
+  color: var(--muted);
+}
+
+.staff-card > p {
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+}
+
+.staff-actions {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.5fr) auto;
+  align-items: end;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.staff-actions label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.staff-actions form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.account-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.6fr) minmax(320px, 1fr);
+  align-items: start;
+  gap: 1rem;
+  max-width: 900px;
+}
+
+.account-panel > div,
+.account-panel > .error {
+  grid-column: 1;
+}
+
+.account-panel > form {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.account-panel h2 {
+  margin: 0;
+}
+
+.account-panel p:not(.eyebrow) {
+  color: var(--muted);
+}
+
 .kitchen-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(260px, 1fr));
@@ -1271,6 +1378,8 @@ select:focus {
   .forms-grid,
   .checkout-layout,
   .sales-layout,
+  .staff-layout,
+  .account-panel,
   .payment-form,
   .cash-actions,
   .cash-metrics,
@@ -1297,8 +1406,21 @@ select:focus {
   }
 
   .refund-form,
-  .cancel-order-form {
+  .cancel-order-form,
+  .staff-actions,
+  .staff-actions form {
     grid-template-columns: 1fr;
+  }
+
+  .staff-create {
+    position: static;
+  }
+
+  .account-panel > div,
+  .account-panel > .error,
+  .account-panel > form {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .order-open-form,

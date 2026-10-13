@@ -24,6 +24,9 @@ directamente en `https://semaialabs.com`.
 - Desglose informativo de IVA incluido calculado por el backend.
 - Anulaciones de pedidos y reembolsos parciales o completos con autorización,
   idempotencia, turno de caja y auditoría.
+- Administración de personal, roles, estado de acceso y contraseñas.
+- Invalidación inmediata de sesiones al cambiar permisos, desactivar cuentas o
+  restablecer credenciales.
 - Migraciones SQL Server administradas con Flyway.
 - Panel inicial en `/app`.
 - Proxy HTTPS con Caddy.

@@ -19,6 +19,8 @@ const navigation: Array<{ href: string; label: string; roles?: string[] }> = [
   { href: "/app/checkout", label: "Caja", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
   { href: "/app/cash", label: "Turnos", roles: ["OWNER", "MANAGER", "CASHIER"] },
   { href: "/app/sales", label: "Ventas", roles: ["OWNER", "MANAGER", "CASHIER"] },
+  { href: "/app/staff", label: "Personal", roles: ["OWNER", "MANAGER"] },
+  { href: "/app/account", label: "Mi cuenta" },
 ];
 
 export function AppShell({ title, children }: AppShellProps) {

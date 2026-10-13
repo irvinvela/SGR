@@ -1,10 +1,13 @@
 package com.semaialabs.sgr.auth;
 
 import com.semaialabs.sgr.config.SecurityProperties;
+import com.semaialabs.sgr.staff.StaffPolicy;
+import com.semaialabs.sgr.tenant.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -17,6 +20,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -35,17 +39,20 @@ public class AuthController {
     private final JwtEncoder jwtEncoder;
     private final SecurityProperties securityProperties;
     private final JdbcClient jdbc;
+    private final PasswordEncoder passwordEncoder;
 
     public AuthController(
             AuthenticationManager authenticationManager,
             JwtEncoder jwtEncoder,
             SecurityProperties securityProperties,
-            JdbcClient jdbc
+            JdbcClient jdbc,
+            PasswordEncoder passwordEncoder
     ) {
         this.authenticationManager = authenticationManager;
         this.jwtEncoder = jwtEncoder;
         this.securityProperties = securityProperties;
         this.jdbc = jdbc;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @GetMapping("/csrf")
@@ -86,6 +93,7 @@ public class AuthController {
                 .claim("organization_id", user.organizationId().toString())
                 .claim("organization_name", user.organizationName())
                 .claim("role", user.role())
+                .claim("token_version", user.tokenVersion())
                 .claim("scope", "sgr")
                 .build();
         String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
@@ -130,15 +138,65 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout() {
-        ResponseCookie expired = ResponseCookie.from(CookieBearerTokenResolver.COOKIE_NAME, "")
-                .httpOnly(true)
-                .secure(securityProperties.secureCookie())
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(0)
-                .build();
         return ResponseEntity.noContent()
-                .header(HttpHeaders.SET_COOKIE, expired.toString())
+                .header(HttpHeaders.SET_COOKIE, expiredAccessCookie().toString())
+                .build();
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(
+                        jwt.getClaimAsString("email"),
+                        request.currentPassword()
+                )
+        );
+        try {
+            StaffPolicy.validatePassword(request.newPassword());
+        } catch (IllegalArgumentException error) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    error.getMessage(),
+                    error
+            );
+        }
+        if (request.currentPassword().equals(request.newPassword())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "La nueva contraseña debe ser diferente"
+            );
+        }
+
+        jdbc.sql("""
+                UPDATE app_users
+                SET password_hash = :passwordHash,
+                    token_version = token_version + 1,
+                    failed_login_attempts = 0,
+                    locked_until = NULL,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :userId
+                """)
+                .param("passwordHash", passwordEncoder.encode(request.newPassword()))
+                .param("userId", TenantContext.userId(jwt))
+                .update();
+        jdbc.sql("""
+                INSERT INTO audit_events (
+                    organization_id, actor_user_id, event_type, ip_address, user_agent
+                ) VALUES (
+                    :organizationId, :userId, 'AUTH_PASSWORD_CHANGED', :ipAddress, :userAgent
+                )
+                """)
+                .param("organizationId", TenantContext.organizationId(jwt))
+                .param("userId", TenantContext.userId(jwt))
+                .param("ipAddress", httpRequest.getRemoteAddr())
+                .param("userAgent", httpRequest.getHeader("User-Agent"))
+                .update();
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, expiredAccessCookie().toString())
                 .build();
     }
 
@@ -153,6 +211,16 @@ public class AuthController {
             builder.maxAge(securityProperties.accessTokenDuration(true));
         }
         return builder.build();
+    }
+
+    private ResponseCookie expiredAccessCookie() {
+        return ResponseCookie.from(CookieBearerTokenResolver.COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(securityProperties.secureCookie())
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(0)
+                .build();
     }
 
     private void writeAudit(SgrUser user, String event, HttpServletRequest request) {
@@ -175,6 +243,12 @@ public class AuthController {
             @NotBlank @Email String email,
             @NotBlank String password,
             boolean remember
+    ) {
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank @Size(max = 200) String newPassword
     ) {
     }
 

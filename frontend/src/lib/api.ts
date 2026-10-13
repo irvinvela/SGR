@@ -248,6 +248,15 @@ export type SalesReceipt = {
   }>;
 };
 
+export type StaffMember = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "OWNER" | "MANAGER" | "CASHIER" | "SERVER" | "KITCHEN";
+  active: boolean;
+  lastLoginAt?: string;
+};
+
 function cookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
   return document.cookie
@@ -283,7 +292,7 @@ export async function login(email: string, password: string, remember: boolean):
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.message || "No se pudo iniciar sesión");
+    throw new Error(body?.message || body?.detail || "No se pudo iniciar sesión");
   }
   return response.json();
 }
@@ -325,8 +334,9 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.message || "La operación no se pudo completar");
+    throw new Error(body?.message || body?.detail || "La operación no se pudo completar");
   }
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 
@@ -536,3 +546,39 @@ export const createRefund = (input: {
   method: "POST",
   body: JSON.stringify(input),
 });
+
+export const listStaff = () => apiRequest<StaffMember[]>("/api/staff");
+
+export const createStaff = (input: {
+  email: string;
+  displayName: string;
+  password: string;
+  role: StaffMember["role"];
+}) => apiRequest<StaffMember>("/api/staff", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const changeStaffRole = (userId: string, role: StaffMember["role"]) =>
+  apiRequest<StaffMember>("/api/staff/role", {
+    method: "PATCH",
+    body: JSON.stringify({ userId, role }),
+  });
+
+export const changeStaffStatus = (userId: string, active: boolean) =>
+  apiRequest<StaffMember>("/api/staff/status", {
+    method: "PATCH",
+    body: JSON.stringify({ userId, active }),
+  });
+
+export const resetStaffPassword = (userId: string, password: string) =>
+  apiRequest<StaffMember>("/api/staff/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ userId, password }),
+  });
+
+export const changeOwnPassword = (currentPassword: string, newPassword: string) =>
+  apiRequest<void>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });

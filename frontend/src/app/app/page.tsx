@@ -16,6 +16,7 @@ const modules: Array<{
   { href: "/app/checkout", title: "Caja", description: "Registra pagos parciales o completos y cierra las mesas.", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
   { href: "/app/cash", title: "Turnos de caja", description: "Controla fondos, movimientos, arqueos y diferencias.", roles: ["OWNER", "MANAGER", "CASHIER"] },
   { href: "/app/sales", title: "Ventas", description: "Consulta operaciones diarias y comprobantes de pago.", roles: ["OWNER", "MANAGER", "CASHIER"] },
+  { href: "/app/staff", title: "Personal", description: "Administra usuarios, roles, accesos y contraseñas.", roles: ["OWNER", "MANAGER"] },
 ];
 
 export default function DashboardPage() {
