@@ -583,6 +583,19 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.item-edit-form,
+.item-void-form {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.item-void-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .inline-order-form {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) 80px;
@@ -1330,6 +1343,17 @@ select:focus {
   gap: 0.25rem;
 }
 
+.kitchen-ticket li.voided {
+  border: 2px solid var(--danger);
+  border-radius: 8px;
+  background: #fbeaea;
+  padding: 0.6rem;
+}
+
+.kitchen-ticket li.voided strong {
+  text-decoration: line-through;
+}
+
 .kitchen-ticket em {
   color: var(--danger);
   font-size: 0.82rem;
@@ -1407,6 +1431,8 @@ select:focus {
 
   .refund-form,
   .cancel-order-form,
+  .item-edit-form,
+  .item-void-form,
   .staff-actions,
   .staff-actions form {
     grid-template-columns: 1fr;

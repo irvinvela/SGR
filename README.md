@@ -14,6 +14,7 @@ directamente en `https://semaialabs.com`.
 - Gestión de salones y mesas con estados operativos y control de concurrencia.
 - Catálogo por local con categorías, productos, precio, IVA y disponibilidad.
 - Pedidos abiertos por mesa con precios e impuestos preservados como snapshots.
+- Edición de partidas pendientes y anulaciones auditadas visibles en cocina.
 - Rondas de cocina idempotentes: cada envío incluye únicamente ítems nuevos.
 - KDS con estados nueva, en preparación, lista y completada.
 - Solicitud de cuenta y cobros parciales o completos en efectivo y tarjeta.

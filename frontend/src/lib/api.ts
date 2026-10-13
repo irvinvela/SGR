@@ -65,6 +65,9 @@ export type OrderItem = {
   taxRate: number;
   kitchenNote?: string;
   sentToKitchen: boolean;
+  voided: boolean;
+  voidReason?: string;
+  version: number;
 };
 
 export type RestaurantOrder = {
@@ -97,6 +100,8 @@ export type KitchenRound = {
     productName: string;
     quantity: number;
     kitchenNote?: string;
+    voided: boolean;
+    voidReason?: string;
   }>;
   version: number;
 };
@@ -431,6 +436,25 @@ export const addOrderItem = (input: {
   quantity: number;
   kitchenNote?: string;
 }) => apiRequest<OrderItem>("/api/orders/items", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const editOrderItem = (input: {
+  itemId: string;
+  quantity: number;
+  kitchenNote?: string;
+  expectedVersion: number;
+}) => apiRequest<OrderItem>("/api/orders/items", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
+export const voidOrderItem = (input: {
+  itemId: string;
+  reason: string;
+  expectedVersion: number;
+}) => apiRequest<OrderItem>("/api/orders/items/void", {
   method: "POST",
   body: JSON.stringify(input),
 });
