@@ -203,26 +203,6 @@ select {
   width: min(100%, 430px);
 }
 
-.login-access-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-}
-
-.login-badge {
-  display: grid;
-  width: 3rem;
-  height: 3rem;
-  border: 1px solid #cee0d5;
-  border-radius: 14px;
-  background: #eaf4ee;
-  place-items: center;
-  color: var(--primary);
-}
-
-.login-badge svg,
 .secure-note svg,
 .login-input-shell > svg {
   fill: none;
@@ -232,11 +212,6 @@ select {
   stroke-width: 1.8;
 }
 
-.login-badge svg {
-  width: 1.55rem;
-  height: 1.55rem;
-}
-
 .eyebrow {
   margin: 0 0 0.8rem;
   color: var(--primary);
@@ -244,10 +219,6 @@ select {
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-}
-
-.login-access-label .eyebrow {
-  margin: 0;
 }
 
 .login-card h2 {
