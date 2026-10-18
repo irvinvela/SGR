@@ -1,11 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { currentUser, login } from "@/lib/api";
+import { CurrentUser, currentUser, login } from "@/lib/api";
+import { WorkspaceApp } from "@/components/WorkspaceApp";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const [authenticatedUser, setAuthenticatedUser] = useState<CurrentUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -14,25 +15,48 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const reason = window.sessionStorage.getItem("sgr.logoutReason");
+        if (reason) {
+          setError(reason);
+          window.sessionStorage.removeItem("sgr.logoutReason");
+        }
+      } catch {
+        // ignore
+      }
+    }
     currentUser()
       .then((user) => {
-        if (user) router.replace("/app");
+        if (user) setAuthenticatedUser(user);
       })
-      .catch(() => undefined);
-  }, [router]);
+      .catch(() => undefined)
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await login(email, password, remember);
-      router.replace("/app");
+      const user = await login(email, password, remember);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("sgr.activeSection", "home");
+      }
+      setAuthenticatedUser(user);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo iniciar sesión");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checkingSession) {
+    return null;
+  }
+
+  if (authenticatedUser) {
+    return <WorkspaceApp user={authenticatedUser} />;
   }
 
   return (
@@ -90,21 +114,21 @@ export default function LoginPage() {
               </div>
             </div>
             <div className="form-field">
-              <label htmlFor="password">Contraseña</label>
+              <label htmlFor="credential">Contraseña</label>
               <div className="login-input-shell">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <rect x="5" y="10" width="14" height="10" rx="2" />
                   <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10M12 14v2" />
                 </svg>
                 <input
-                  id="password"
-                  name="password"
+                  id="credential"
+                  name="k"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="Introduce tu contraseña"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  minLength={10}
+                  minLength={8}
                   required
                 />
                 <button

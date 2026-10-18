@@ -30,6 +30,13 @@ public final class StaffPolicy {
         return "MANAGER".equals(actorRole) && MANAGER_ASSIGNABLE_ROLES.contains(targetRole);
     }
 
+    public static boolean canView(String actorRole, String targetRole) {
+        if ("OWNER".equals(actorRole) || "PLATFORM_ADMIN".equals(actorRole)) {
+            return true;
+        }
+        return !"OWNER".equals(targetRole) && !"PLATFORM_ADMIN".equals(targetRole);
+    }
+
     public static void validatePassword(String password) {
         if (password == null || password.length() < 12) {
             throw new IllegalArgumentException("La contraseña debe tener al menos 12 caracteres");

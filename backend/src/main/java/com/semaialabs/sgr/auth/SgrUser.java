@@ -30,6 +30,11 @@ public record SgrUser(
     }
 
     @Override
+    public String toString() {
+        return "SgrUser[id=" + id + ", email=" + email + ", role=" + role + ", password=[PROTECTED]]";
+    }
+
+    @Override
     public String getUsername() {
         return email;
     }

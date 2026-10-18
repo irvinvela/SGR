@@ -14,4 +14,9 @@ public record SecurityProperties(
     public Duration accessTokenDuration(boolean remember) {
         return remember ? Duration.ofDays(rememberTokenDays) : Duration.ofMinutes(accessTokenMinutes);
     }
+
+    @Override
+    public String toString() {
+        return "SecurityProperties[issuer=" + issuer + ", jwtSecret=[PROTECTED]]";
+    }
 }

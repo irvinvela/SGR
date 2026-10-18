@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { useAppNavigation } from "@/components/AppShell";
 import {
   CurrentUser,
   Location,
@@ -17,7 +17,8 @@ import {
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 
-export default function CatalogPage() {
+export default function CatalogView() {
+  const { user } = useAppNavigation();
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
   const [categories, setCategories] = useState<MenuCategory[]>([]);
@@ -108,80 +109,76 @@ export default function CatalogPage() {
   }
 
   return (
-    <AppShell title="Catálogo">
-      {(user) => (
-        <>
-          <div className="toolbar">
+    <>
+      <div className="toolbar">
+        <label>
+          Local
+          <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {canManage(user) && (
+        <section className="forms-grid">
+          <form className="form-card" onSubmit={addCategory}>
+            <h2>Nueva categoría</h2>
+            <label>Nombre<input name="name" maxLength={100} required /></label>
+            <label>Código<input name="code" maxLength={40} required /></label>
+            <button className="primary-button" disabled={busy || !locationId}>Crear categoría</button>
+          </form>
+          <form className="form-card" onSubmit={addProduct}>
+            <h2>Nuevo producto</h2>
             <label>
-              Local
-              <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>{location.name}</option>
+              Categoría
+              <select name="categoryId" required>
+                <option value="">Seleccionar</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
                 ))}
               </select>
             </label>
-          </div>
-          {error && <p className="error" role="alert">{error}</p>}
-          {canManage(user) && (
-            <section className="forms-grid">
-              <form className="form-card" onSubmit={addCategory}>
-                <h2>Nueva categoría</h2>
-                <label>Nombre<input name="name" maxLength={100} required /></label>
-                <label>Código<input name="code" maxLength={40} required /></label>
-                <button className="primary-button" disabled={busy || !locationId}>Crear categoría</button>
-              </form>
-              <form className="form-card" onSubmit={addProduct}>
-                <h2>Nuevo producto</h2>
-                <label>
-                  Categoría
-                  <select name="categoryId" required>
-                    <option value="">Seleccionar</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>Nombre<input name="name" maxLength={160} required /></label>
-                <label>SKU<input name="sku" maxLength={64} required /></label>
-                <label>Descripción<input name="description" maxLength={500} /></label>
-                <div className="split-fields">
-                  <label>Precio<input name="price" type="number" min="0" step="0.01" required /></label>
-                  <label>IVA %<input name="taxRate" type="number" min="0" max="100" step="0.01" defaultValue="10" required /></label>
-                </div>
-                <button className="primary-button" disabled={busy || categories.length === 0}>Crear producto</button>
-              </form>
-            </section>
-          )}
-          <section className="product-list" aria-label="Productos">
-            {products.map((product) => (
-              <article className={product.available ? "product-row" : "product-row unavailable"} key={product.id}>
-                <div>
-                  <small>{product.categoryName} · {product.sku}</small>
-                  <h2>{product.name}</h2>
-                  {product.description && <p>{product.description}</p>}
-                </div>
-                <div className="product-price">
-                  <strong>{money.format(product.price)}</strong>
-                  <small>IVA {product.taxRate}%</small>
-                </div>
-                {canManage(user) && (
-                  <button
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => toggleAvailability(product)}
-                  >
-                    {product.available ? "Marcar no disponible" : "Restaurar"}
-                  </button>
-                )}
-              </article>
-            ))}
-          </section>
-          {locationId && products.length === 0 && (
-            <p className="empty-state">Todavía no hay productos en este local.</p>
-          )}
-        </>
+            <label>Nombre<input name="name" maxLength={160} required /></label>
+            <label>SKU<input name="sku" maxLength={64} required /></label>
+            <label>Descripción<input name="description" maxLength={500} /></label>
+            <div className="split-fields">
+              <label>Precio<input name="price" type="number" min="0" step="0.01" required /></label>
+              <label>IVA %<input name="taxRate" type="number" min="0" max="100" step="0.01" defaultValue="10" required /></label>
+            </div>
+            <button className="primary-button" disabled={busy || categories.length === 0}>Crear producto</button>
+          </form>
+        </section>
       )}
-    </AppShell>
+      <section className="product-list" aria-label="Productos">
+        {products.map((product) => (
+          <article className={product.available ? "product-row" : "product-row unavailable"} key={product.id}>
+            <div>
+              <small>{product.categoryName} · {product.sku}</small>
+              <h2>{product.name}</h2>
+              {product.description && <p>{product.description}</p>}
+            </div>
+            <div className="product-price">
+              <strong>{money.format(product.price)}</strong>
+              <small>IVA {product.taxRate}%</small>
+            </div>
+            {canManage(user) && (
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => toggleAvailability(product)}
+              >
+                {product.available ? "Marcar no disponible" : "Restaurar"}
+              </button>
+            )}
+          </article>
+        ))}
+      </section>
+      {locationId && products.length === 0 && (
+        <p className="empty-state">Todavía no hay productos en este local.</p>
+      )}
+    </>
   );
 }
 

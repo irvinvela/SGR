@@ -18,6 +18,20 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: "/app",
+        destination: "/",
+        permanent: false,
+      },
+      {
+        source: "/app/:path*",
+        destination: "/",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     if (process.env.NODE_ENV !== "development") {
       return [];

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { useAppNavigation } from "@/components/AppShell";
 import {
   CurrentUser,
   DiningArea,
@@ -22,7 +22,8 @@ const statusLabels: Record<DiningTable["status"], string> = {
   OUT_OF_SERVICE: "Fuera de servicio",
 };
 
-export default function TablesPage() {
+export default function TablesView() {
+  const { user } = useAppNavigation();
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
   const [areas, setAreas] = useState<DiningArea[]>([]);
@@ -110,77 +111,73 @@ export default function TablesPage() {
   }
 
   return (
-    <AppShell title="Salones y mesas">
-      {(user) => (
-        <>
-          <div className="toolbar">
+    <>
+      <div className="toolbar">
+        <label>
+          Local
+          <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {canManage(user) && (
+        <section className="forms-grid">
+          <form className="form-card" onSubmit={addArea}>
+            <h2>Nuevo salón</h2>
+            <label>Nombre<input name="name" maxLength={100} required /></label>
+            <button className="primary-button" disabled={busy || !locationId}>Crear salón</button>
+          </form>
+          <form className="form-card" onSubmit={addTable}>
+            <h2>Nueva mesa</h2>
             <label>
-              Local
-              <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>{location.name}</option>
-                ))}
+              Salón
+              <select name="areaId" required>
+                <option value="">Seleccionar</option>
+                {areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
               </select>
             </label>
-          </div>
-          {error && <p className="error" role="alert">{error}</p>}
-          {canManage(user) && (
-            <section className="forms-grid">
-              <form className="form-card" onSubmit={addArea}>
-                <h2>Nuevo salón</h2>
-                <label>Nombre<input name="name" maxLength={100} required /></label>
-                <button className="primary-button" disabled={busy || !locationId}>Crear salón</button>
-              </form>
-              <form className="form-card" onSubmit={addTable}>
-                <h2>Nueva mesa</h2>
-                <label>
-                  Salón
-                  <select name="areaId" required>
-                    <option value="">Seleccionar</option>
-                    {areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
-                  </select>
-                </label>
-                <label>Código<input name="code" maxLength={40} required /></label>
-                <label>Nombre<input name="name" maxLength={100} required /></label>
-                <label>Capacidad<input name="capacity" type="number" min={1} max={100} defaultValue={2} required /></label>
-                <button className="primary-button" disabled={busy || areas.length === 0}>Crear mesa</button>
-              </form>
-            </section>
-          )}
-          <section className="entity-grid" aria-label="Mesas">
-            {tables.map((table) => (
-              <article className={`table-card status-${table.status.toLowerCase()}`} key={table.id}>
-                <div className="card-heading">
-                  <div>
-                    <small>{table.areaName} · {table.code}</small>
-                    <h2>{table.name}</h2>
-                  </div>
-                  <span>{table.capacity} plazas</span>
-                </div>
-                {table.status === "FREE" || table.status === "OUT_OF_SERVICE" ? (
-                  <label>
-                    Estado administrativo
-                    <select
-                      value={table.status}
-                      disabled={busy}
-                      onChange={(event) => updateStatus(table, event.target.value as DiningTable["status"])}
-                    >
-                      <option value="FREE">{statusLabels.FREE}</option>
-                      <option value="OUT_OF_SERVICE">{statusLabels.OUT_OF_SERVICE}</option>
-                    </select>
-                  </label>
-                ) : (
-                  <span className="operational-status">{statusLabels[table.status]}</span>
-                )}
-              </article>
-            ))}
-          </section>
-          {locationId && tables.length === 0 && (
-            <p className="empty-state">Todavía no hay mesas configuradas para este local.</p>
-          )}
-        </>
+            <label>Código<input name="code" maxLength={40} required /></label>
+            <label>Nombre<input name="name" maxLength={100} required /></label>
+            <label>Capacidad<input name="capacity" type="number" min={1} max={100} defaultValue={2} required /></label>
+            <button className="primary-button" disabled={busy || areas.length === 0}>Crear mesa</button>
+          </form>
+        </section>
       )}
-    </AppShell>
+      <section className="entity-grid" aria-label="Mesas">
+        {tables.map((table) => (
+          <article className={`table-card status-${table.status.toLowerCase()}`} key={table.id}>
+            <div className="card-heading">
+              <div>
+                <small>{table.areaName} · {table.code}</small>
+                <h2>{table.name}</h2>
+              </div>
+              <span>{table.capacity} plazas</span>
+            </div>
+            {table.status === "FREE" || table.status === "OUT_OF_SERVICE" ? (
+              <label>
+                Estado administrativo
+                <select
+                  value={table.status}
+                  disabled={busy}
+                  onChange={(event) => updateStatus(table, event.target.value as DiningTable["status"])}
+                >
+                  <option value="FREE">{statusLabels.FREE}</option>
+                  <option value="OUT_OF_SERVICE">{statusLabels.OUT_OF_SERVICE}</option>
+                </select>
+              </label>
+            ) : (
+              <span className="operational-status">{statusLabels[table.status]}</span>
+            )}
+          </article>
+        ))}
+      </section>
+      {locationId && tables.length === 0 && (
+        <p className="empty-state">Todavía no hay mesas configuradas para este local.</p>
+      )}
+    </>
   );
 }
 

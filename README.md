@@ -1,16 +1,15 @@
 # SGR Online
 
-Nueva plataforma web de gestión de restaurantes de Semaia Labs. Esta aplicación
-es independiente del runtime Electron/SQLite de FloCafe y se publica
-directamente en `https://semaialabs.com`.
+Plataforma web de gestión de restaurantes de Semaia Labs publicada en `https://semaialabs.com`.
 
-## Primera entrega
+## Funcionalidades actuales
 
-- Login en la ruta `/`.
+- Login y operación completa en la ruta única `/` (navegación SPA sin variación de URL).
 - Sesión mediante JWT en cookie `HttpOnly`, `Secure` y `SameSite=Strict`.
+- Cierre automático de sesión por inactividad tras 15 minutos (con aviso previo a los 14 minutos).
 - Protección CSRF para operaciones autenticadas.
-- Modelo inicial multi-restaurante: organizaciones, locales, usuarios y roles.
-- Auditoría del inicio de sesión.
+- Modelo multi-restaurante: organizaciones, locales, usuarios y roles (`OWNER`, `MANAGER`, `CASHIER`, `SERVER`, `KITCHEN`).
+- Auditoría de eventos operativos y de seguridad.
 - Gestión de salones y mesas con estados operativos y control de concurrencia.
 - Catálogo por local con categorías, productos, precio, IVA y disponibilidad.
 - Pedidos abiertos por mesa con precios e impuestos preservados como snapshots.
@@ -25,15 +24,11 @@ directamente en `https://semaialabs.com`.
 - Desglose informativo de IVA incluido calculado por el backend.
 - Anulaciones de pedidos y reembolsos parciales o completos con autorización,
   idempotencia, turno de caja y auditoría.
-- Administración de personal, roles, estado de acceso y contraseñas.
+- Administración de personal, roles, estado de acceso y contraseñas (ocultando cuentas `OWNER` a roles no administradores).
 - Invalidación inmediata de sesiones al cambiar permisos, desactivar cuentas o
   restablecer credenciales.
 - Migraciones SQL Server administradas con Flyway.
-- Panel inicial en `/app`.
-- Proxy HTTPS con Caddy.
-
-La impresión automática en impresoras térmicas todavía no contiene lógica
-operativa; el comprobante actual utiliza el diálogo de impresión del navegador.
+- Proxy HTTPS con Nginx.
 
 Los precios del catálogo se interpretan como precios finales con IVA incluido.
 Los comprobantes actuales son documentos operativos no fiscales y no sustituyen
@@ -49,8 +44,7 @@ online/
 ├── backend/                 Spring Boot 3 / Java 21
 ├── frontend/                Next.js 16 / React 19
 ├── deploy/
-│   ├── Caddyfile            configuración opcional para Caddy existente
-│   ├── nginx-semaialabs.conf configuración opcional para Nginx existente
+│   ├── nginx-semaialabs.conf configuración para Nginx
 │   └── create-database.sql  base SGR y usuarios con privilegios separados
 ├── compose.production.yml
 └── .env.production.example
@@ -79,47 +73,20 @@ npm run dev
 
 En desarrollo, Next.js reenvía `/api/*` a `http://localhost:8080`.
 
-## Primer propietario
+## Despliegue en VPS
 
-Las variables `SGR_BOOTSTRAP_*` crean de forma idempotente el primer
-restaurante, local y propietario. Deben retirarse del entorno del VPS después
-del primer arranque correcto. No se deben guardar contraseñas reales en Git.
-
-Genere el secreto JWT con al menos 32 bytes aleatorios codificados en Base64:
-
-```powershell
-[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
-```
-
-## Despliegue junto a SGI
-
-SGR puede compartir VPS e instancia SQL Server con SGI, pero utiliza:
+SGR utiliza:
 
 - una base independiente llamada `SGR`;
-- logins SQL independientes (`sgr_app` y `sgr_migrator`);
+- logins SQL con privilegios separados (operación y migración);
+- cadenas de conexión y credenciales protegidas mediante `ENC(...)` (AES-256-GCM) y transporte de credenciales ofuscado (`OBF1:`);
 - contenedores y red propios;
 - credenciales y backups independientes.
 
-La base de datos no debe publicar el puerto 1433 en Internet. Antes de ejecutar
-`docker compose`, copie `.env.production.example` como `.env.production` fuera
-del control de versiones y configure las credenciales reales.
-
 ```sh
-cd online
-docker compose -f compose.production.yml up -d --build
+cd /opt/sgr/app
+docker compose -p sgr -f compose.production.yml up -d --build
 ```
 
-Los contenedores solo publican la web en `127.0.0.1:3300` y la API en
-`127.0.0.1:38080`; no ocupan directamente los puertos públicos del VPS. Integre
-uno de los archivos de `deploy/` en el proxy que ya utiliza SGI. No levante un
-segundo proxy en los puertos 80/443.
-
-El DNS de `semaialabs.com` y `www.semaialabs.com` debe apuntar al VPS y el proxy
-existente debe mantener un certificado TLS válido.
-
-## Próximas fases
-
-1. Productos con grupos de modificadores.
-2. Actualización KDS mediante WebSocket.
-3. Pagos y cierre de mesa.
-4. Agente local Windows para impresora USB y cola offline.
+Los contenedores publican la web en `127.0.0.1:3300` y la API en
+`127.0.0.1:38080` detrás del proxy Nginx del VPS.

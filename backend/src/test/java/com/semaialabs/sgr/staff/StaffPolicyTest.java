@@ -21,6 +21,15 @@ class StaffPolicyTest {
     }
 
     @Test
+    void nonOwnerCannotViewOwnerUsers() {
+        assertThat(StaffPolicy.canView("OWNER", "OWNER")).isTrue();
+        assertThat(StaffPolicy.canView("MANAGER", "OWNER")).isFalse();
+        assertThat(StaffPolicy.canView("MANAGER", "MANAGER")).isTrue();
+        assertThat(StaffPolicy.canView("MANAGER", "CASHIER")).isTrue();
+        assertThat(StaffPolicy.canView("CASHIER", "OWNER")).isFalse();
+    }
+
+    @Test
     void platformAdministratorCannotBeAssigned() {
         assertThat(StaffPolicy.canAssignRole("OWNER", "PLATFORM_ADMIN")).isFalse();
     }

@@ -2,7 +2,7 @@ spring:
   application:
     name: sgr-api
   datasource:
-    url: ${SGR_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=SGR;encrypt=true;trustServerCertificate=false}
+    url: ${SGR_DB_URL:ENC(Nz24zav55oYNAUR/8DZLpW07uUCSS+778zKARb4Y0CBqGjMKQIaHDBY7wjU6wVvdQ0Y5fakVs/TQ2fBYEZgwpVgyGUylmb8D9uo9/EVQnq0lesctdPiyWEhJ0e3KjR6m/9jjaxKOzw4KDSGyGnkQuc1PwHpDww==)}
     username: ${SGR_DB_USERNAME}
     password: ${SGR_DB_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
@@ -40,12 +40,8 @@ sgr:
     access-token-minutes: ${SGR_ACCESS_TOKEN_MINUTES:480}
     remember-token-days: ${SGR_REMEMBER_TOKEN_DAYS:7}
     secure-cookie: ${SGR_SECURE_COOKIE:true}
-  bootstrap:
-    owner-email: ${SGR_BOOTSTRAP_OWNER_EMAIL:}
-    owner-password: ${SGR_BOOTSTRAP_OWNER_PASSWORD:}
-    owner-name: ${SGR_BOOTSTRAP_OWNER_NAME:}
-    organization-name: ${SGR_BOOTSTRAP_ORGANIZATION_NAME:}
 
 logging:
   level:
     org.springframework.security: INFO
+    org.flywaydb.core.FlywayExecutor: WARN

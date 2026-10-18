@@ -1,5 +1,7 @@
 package com.semaialabs.sgr.auth;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.semaialabs.sgr.config.SecretObfuscator;
 import com.semaialabs.sgr.config.SecurityProperties;
 import com.semaialabs.sgr.staff.StaffPolicy;
 import com.semaialabs.sgr.tenant.TenantContext;
@@ -21,6 +23,8 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -60,18 +64,19 @@ public class AuthController {
         return Map.of("token", token.getToken());
     }
 
-    @PostMapping("/login")
+    @PostMapping({"/login", "/session"})
     public ResponseEntity<UserResponse> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest
     ) {
         String normalizedEmail = request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        String resolvedCredential = SecretObfuscator.decodeCredential(request.credential());
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(
                             normalizedEmail,
-                            request.password()
+                            resolvedCredential
                     )
             );
         } catch (AuthenticationException error) {
@@ -96,7 +101,8 @@ public class AuthController {
                 .claim("token_version", user.tokenVersion())
                 .claim("scope", "sgr")
                 .build();
-        String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+        JwsHeader jwsHeader = JwsHeader.with(MacAlgorithm.HS256).build();
+        String token = jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
 
         jdbc.sql("UPDATE app_users SET last_login_at = SYSUTCDATETIME(), failed_login_attempts = 0 WHERE id = :id")
                 .param("id", user.id())
@@ -143,20 +149,22 @@ public class AuthController {
                 .build();
     }
 
-    @PostMapping("/change-password")
+    @PostMapping({"/change-password", "/credentials"})
     public ResponseEntity<Void> changePassword(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody ChangePasswordRequest request,
             HttpServletRequest httpRequest
     ) {
+        String currentSecret = SecretObfuscator.decodeCredential(request.currentCredential());
+        String nextSecret = SecretObfuscator.decodeCredential(request.nextCredential());
         authenticationManager.authenticate(
                 UsernamePasswordAuthenticationToken.unauthenticated(
                         jwt.getClaimAsString("email"),
-                        request.currentPassword()
+                        currentSecret
                 )
         );
         try {
-            StaffPolicy.validatePassword(request.newPassword());
+            StaffPolicy.validatePassword(nextSecret);
         } catch (IllegalArgumentException error) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST,
@@ -164,7 +172,7 @@ public class AuthController {
                     error
             );
         }
-        if (request.currentPassword().equals(request.newPassword())) {
+        if (currentSecret.equals(nextSecret)) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "La nueva contraseña debe ser diferente"
@@ -180,7 +188,7 @@ public class AuthController {
                     updated_at = SYSUTCDATETIME()
                 WHERE id = :userId
                 """)
-                .param("passwordHash", passwordEncoder.encode(request.newPassword()))
+                .param("passwordHash", passwordEncoder.encode(nextSecret))
                 .param("userId", TenantContext.userId(jwt))
                 .update();
         jdbc.sql("""
@@ -241,15 +249,23 @@ public class AuthController {
 
     public record LoginRequest(
             @NotBlank @Email String email,
-            @NotBlank String password,
+            @NotBlank @JsonAlias({"password", "k"}) String credential,
             boolean remember
     ) {
+        @Override
+        public String toString() {
+            return "LoginRequest[email=" + email + ", credential=[PROTECTED], remember=" + remember + "]";
+        }
     }
 
     public record ChangePasswordRequest(
-            @NotBlank String currentPassword,
-            @NotBlank @Size(max = 200) String newPassword
+            @NotBlank @JsonAlias({"currentPassword", "c"}) String currentCredential,
+            @NotBlank @Size(max = 512) @JsonAlias({"newPassword", "n"}) String nextCredential
     ) {
+        @Override
+        public String toString() {
+            return "ChangePasswordRequest[currentCredential=[PROTECTED], nextCredential=[PROTECTED]]";
+        }
     }
 
     public record UserResponse(

@@ -1,6 +1,8 @@
 package com.semaialabs.sgr.staff;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.semaialabs.sgr.audit.AuditService;
+import com.semaialabs.sgr.config.SecretObfuscator;
 import com.semaialabs.sgr.tenant.TenantContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -45,6 +47,7 @@ public class StaffController {
     @GetMapping
     public List<StaffResponse> list(@AuthenticationPrincipal Jwt jwt) {
         UUID organizationId = TenantContext.organizationId(jwt);
+        String actorRole = jwt.getClaimAsString("role");
         return jdbc.sql("""
                 SELECT u.id, u.email, u.display_name, u.last_login_at,
                        uo.role, uo.active
@@ -73,7 +76,10 @@ public class StaffController {
                                 ? null
                                 : rs.getTimestamp("last_login_at").toInstant().toString()
                 ))
-                .list();
+                .list()
+                .stream()
+                .filter(member -> StaffPolicy.canView(actorRole, member.role()))
+                .toList();
     }
 
     @PostMapping
@@ -83,7 +89,8 @@ public class StaffController {
             @Valid @RequestBody CreateStaffRequest request
     ) {
         requireAssignable(jwt, request.role());
-        validatePassword(request.password());
+        String rawCredential = SecretObfuscator.decodeCredential(request.credential());
+        validatePassword(rawCredential);
         UUID organizationId = TenantContext.organizationId(jwt);
         String email = request.email().trim();
         String normalizedEmail = email.toLowerCase(Locale.ROOT);
@@ -114,7 +121,7 @@ public class StaffController {
                     .param("id", userId)
                     .param("email", email)
                     .param("normalizedEmail", normalizedEmail)
-                    .param("passwordHash", passwordEncoder.encode(request.password()))
+                    .param("passwordHash", passwordEncoder.encode(rawCredential))
                     .param("displayName", request.displayName().trim())
                     .update();
         } catch (DuplicateKeyException error) {
@@ -216,7 +223,7 @@ public class StaffController {
         return findStaff(organizationId, request.userId());
     }
 
-    @PostMapping("/reset-password")
+    @PostMapping({"/reset-password", "/credentials"})
     @Transactional
     public StaffResponse resetPassword(
             @AuthenticationPrincipal Jwt jwt,
@@ -225,7 +232,8 @@ public class StaffController {
         UUID organizationId = TenantContext.organizationId(jwt);
         StaffLock target = lockStaff(organizationId, request.userId());
         requireCanManage(jwt, target.role());
-        validatePassword(request.password());
+        String rawCredential = SecretObfuscator.decodeCredential(request.credential());
+        validatePassword(rawCredential);
         jdbc.sql("""
                 UPDATE app_users
                 SET password_hash = :passwordHash,
@@ -235,7 +243,7 @@ public class StaffController {
                     updated_at = SYSUTCDATETIME()
                 WHERE id = :userId
                 """)
-                .param("passwordHash", passwordEncoder.encode(request.password()))
+                .param("passwordHash", passwordEncoder.encode(rawCredential))
                 .param("userId", request.userId())
                 .update();
         audit.record(jwt, "STAFF_PASSWORD_RESET", "app_user", request.userId(), Map.of());
@@ -346,9 +354,13 @@ public class StaffController {
     public record CreateStaffRequest(
             @NotBlank @Email @Size(max = 254) String email,
             @NotBlank @Size(max = 160) String displayName,
-            @NotBlank @Size(max = 200) String password,
+            @NotBlank @Size(max = 512) @JsonAlias({"password", "k"}) String credential,
             @NotBlank @Pattern(regexp = "OWNER|MANAGER|CASHIER|SERVER|KITCHEN") String role
     ) {
+        @Override
+        public String toString() {
+            return "CreateStaffRequest[email=" + email + ", displayName=" + displayName + ", credential=[PROTECTED], role=" + role + "]";
+        }
     }
 
     public record ChangeRoleRequest(
@@ -362,8 +374,12 @@ public class StaffController {
 
     public record ResetPasswordRequest(
             @NotNull UUID userId,
-            @NotBlank @Size(max = 200) String password
+            @NotBlank @Size(max = 512) @JsonAlias({"password", "k"}) String credential
     ) {
+        @Override
+        public String toString() {
+            return "ResetPasswordRequest[userId=" + userId + ", credential=[PROTECTED]]";
+        }
     }
 
     public record StaffResponse(

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { AppShell } from "@/components/AppShell";
+import { useAppNavigation } from "@/components/AppShell";
 import {
   DailySales,
   Location,
@@ -12,7 +12,8 @@ import {
   listLocations,
 } from "@/lib/api";
 
-export default function SalesPage() {
+export default function SalesView() {
+  const { user, selectedOrderId } = useAppNavigation();
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
   const [businessDate, setBusinessDate] = useState("");
@@ -41,12 +42,11 @@ export default function SalesPage() {
       .then((result) => {
         setDaily(result);
         setError("");
-        const requestedId = new URLSearchParams(window.location.search).get("orderId");
-        if (requestedId) loadReceipt(requestedId);
+        if (selectedOrderId) loadReceipt(selectedOrderId);
         else setReceipt(null);
       })
       .catch((cause) => setError(cause.message));
-  }, [locationId, businessDate]);
+  }, [locationId, businessDate, selectedOrderId]);
 
   async function loadReceipt(orderId: string) {
     try {
@@ -102,77 +102,73 @@ export default function SalesPage() {
   const money = new Intl.NumberFormat("es-ES", { style: "currency", currency });
 
   return (
-    <AppShell title="Ventas">
-      {(user) => (
+    <>
+      <div className="sales-controls">
+        <label>
+          Local
+          <select value={locationId} onChange={(event) => changeLocation(event.target.value)}>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Fecha operativa
+          <input
+            type="date"
+            value={businessDate}
+            onChange={(event) => setBusinessDate(event.target.value)}
+          />
+        </label>
+      </div>
+      {error && <p className="error no-print" role="alert">{error}</p>}
+      {notice && <p className="success no-print" role="status">{notice}</p>}
+      {daily && (
         <>
-          <div className="sales-controls">
-            <label>
-              Local
-              <select value={locationId} onChange={(event) => changeLocation(event.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>{location.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fecha operativa
-              <input
-                type="date"
-                value={businessDate}
-                onChange={(event) => setBusinessDate(event.target.value)}
+          <section className="sales-overview">
+            <Metric label="Ventas netas" value={money.format(daily.netSales)} />
+            <Metric label="Reembolsos" value={money.format(daily.refunds)} />
+            <Metric label="Efectivo" value={money.format(daily.cashSales)} />
+            <Metric label="Tarjeta" value={money.format(daily.cardSales)} />
+          </section>
+          <div className="sales-layout">
+            <section className="sales-list">
+              <h2>Operaciones del día</h2>
+              {daily.sales.map((sale) => (
+                <button
+                  type="button"
+                  className={receipt?.orderId === sale.orderId ? "sale-row active" : "sale-row"}
+                  key={sale.orderId}
+                  onClick={() => loadReceipt(sale.orderId)}
+                >
+                  <span>Mesa {sale.tableName}</span>
+                  <strong>{money.format(sale.total)}</strong>
+                  <small>
+                    #{sale.orderNumber} · {formatDateTime(sale.closedAt, daily.timezone)}
+                    {sale.refundedTotal > 0 && ` · Reembolsado ${money.format(sale.refundedTotal)}`}
+                  </small>
+                </button>
+              ))}
+              {daily.sales.length === 0 && (
+                <p className="empty-state">No hay ventas para esta fecha.</p>
+              )}
+            </section>
+            {receipt ? (
+              <Receipt
+                receipt={receipt}
+                canRefund={["OWNER", "MANAGER"].includes(user.role)}
+                busy={busy}
+                onRefund={refundPayment}
               />
-            </label>
+            ) : (
+              <p className="empty-state receipt-placeholder">
+                Selecciona una venta para consultar su comprobante.
+              </p>
+            )}
           </div>
-          {error && <p className="error no-print" role="alert">{error}</p>}
-          {notice && <p className="success no-print" role="status">{notice}</p>}
-          {daily && (
-            <>
-              <section className="sales-overview">
-                <Metric label="Ventas netas" value={money.format(daily.netSales)} />
-                <Metric label="Reembolsos" value={money.format(daily.refunds)} />
-                <Metric label="Efectivo" value={money.format(daily.cashSales)} />
-                <Metric label="Tarjeta" value={money.format(daily.cardSales)} />
-              </section>
-              <div className="sales-layout">
-                <section className="sales-list">
-                  <h2>Operaciones del día</h2>
-                  {daily.sales.map((sale) => (
-                    <button
-                      type="button"
-                      className={receipt?.orderId === sale.orderId ? "sale-row active" : "sale-row"}
-                      key={sale.orderId}
-                      onClick={() => loadReceipt(sale.orderId)}
-                    >
-                      <span>Mesa {sale.tableName}</span>
-                      <strong>{money.format(sale.total)}</strong>
-                      <small>
-                        #{sale.orderNumber} · {formatDateTime(sale.closedAt, daily.timezone)}
-                        {sale.refundedTotal > 0 && ` · Reembolsado ${money.format(sale.refundedTotal)}`}
-                      </small>
-                    </button>
-                  ))}
-                  {daily.sales.length === 0 && (
-                    <p className="empty-state">No hay ventas para esta fecha.</p>
-                  )}
-                </section>
-                {receipt ? (
-                  <Receipt
-                    receipt={receipt}
-                    canRefund={["OWNER", "MANAGER"].includes(user.role)}
-                    busy={busy}
-                    onRefund={refundPayment}
-                  />
-                ) : (
-                  <p className="empty-state receipt-placeholder">
-                    Selecciona una venta para consultar su comprobante.
-                  </p>
-                )}
-              </div>
-            </>
-          )}
         </>
       )}
-    </AppShell>
+    </>
   );
 }
 

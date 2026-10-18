@@ -418,11 +418,6 @@ select {
   font-size: 0.875rem;
 }
 
-.dashboard {
-  min-height: 100vh;
-  padding: clamp(1.5rem, 4vw, 3rem);
-}
-
 .app-frame {
   display: grid;
   min-height: 100vh;
@@ -452,17 +447,36 @@ select {
   gap: 0.35rem;
 }
 
-.app-nav a {
+.app-nav button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.65rem;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: #d8e6de;
   padding: 0.75rem;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.app-nav a:hover,
-.app-nav a.active {
+.app-nav button:hover,
+.app-nav button.active {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
+}
+
+.nav-icon {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.85;
 }
 
 .sidebar-session {
@@ -514,13 +528,16 @@ select {
 
 .module-card {
   display: block;
+  width: 100%;
   min-height: 180px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
   color: var(--text);
   padding: 1.4rem;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease;
 }
 
@@ -530,7 +547,25 @@ select {
 }
 
 .module-card h2 {
-  margin: 0 0 0.5rem;
+  margin: 0;
+}
+
+.module-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.65rem;
+}
+
+.module-card-icon {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--primary);
 }
 
 .module-card p {
@@ -827,7 +862,9 @@ select:focus {
 
 .checkout-link {
   display: block;
+  width: 100%;
   margin-top: 0.75rem;
+  border: 0;
   border-radius: 10px;
   background: var(--primary);
   color: #ffffff;
@@ -835,6 +872,17 @@ select:focus {
   text-align: center;
   text-decoration: none;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.inline-link-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .cancel-order-form {
@@ -860,11 +908,6 @@ select:focus {
   background: #fff6dc;
   color: #694c08;
   padding: 0.8rem;
-}
-
-.cash-warning a {
-  color: inherit;
-  font-weight: 700;
 }
 
 .checkout-orders,
@@ -1388,10 +1431,15 @@ select:focus {
 
 .receipt-link {
   display: block;
+  width: 100%;
   margin-top: 1rem;
+  border: 0;
+  background: transparent;
   color: var(--primary);
   text-align: center;
+  text-decoration: underline;
   font-weight: 700;
+  cursor: pointer;
 }
 
 .staff-layout {
@@ -1577,6 +1625,58 @@ select:focus {
   font-size: 0.82rem;
 }
 
+.idle-modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(18, 32, 24, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.idle-modal-card {
+  width: min(100%, 440px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.24);
+}
+
+.idle-modal-head {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+  padding: 1rem 1.35rem;
+}
+
+.idle-modal-head h2 {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.idle-modal-body {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.35rem;
+}
+
+.idle-modal-body p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.idle-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
 @media (max-width: 1050px) {
   .login-page {
     grid-template-columns: minmax(430px, 1fr) minmax(390px, 0.9fr);
@@ -1643,7 +1743,7 @@ select:focus {
     overflow-x: auto;
   }
 
-  .app-nav a {
+  .app-nav button {
     white-space: nowrap;
   }
 

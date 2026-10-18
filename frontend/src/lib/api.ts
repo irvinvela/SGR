@@ -278,22 +278,49 @@ async function ensureCsrf(): Promise<string> {
     cache: "no-store",
   });
   if (!response.ok) throw new Error("No se pudo iniciar una sesión segura");
-  await response.json();
-  const token = cookie("SGR_XSRF");
+  const payload = await response.json().catch(() => null);
+  const token = cookie("SGR_XSRF") ?? payload?.token;
   if (!token) throw new Error("No se recibió la protección CSRF");
   return decodeURIComponent(token);
 }
 
-export async function login(email: string, password: string, remember: boolean): Promise<CurrentUser> {
+const ENVELOPE_MASK = [
+  0x7a, 0x3c, 0x9e, 0x15, 0xd2, 0x4b, 0x83, 0x61,
+  0xe7, 0x29, 0x54, 0xb8, 0x0f, 0xc6, 0x92, 0x3a,
+];
+
+function obfuscateSecret(secret: string): string {
+  const raw = new TextEncoder().encode(secret);
+  const salt = new Uint8Array(4);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(salt);
+  } else {
+    for (let i = 0; i < 4; i++) salt[i] = (Math.random() * 256) & 0xff;
+  }
+  const out = new Uint8Array(4 + raw.length);
+  out.set(salt, 0);
+  for (let i = 0; i < raw.length; i++) {
+    const maskByte = (ENVELOPE_MASK[i % ENVELOPE_MASK.length] ^ salt[i % 4] ^ ((i * 31) & 0xff)) & 0xff;
+    out[4 + i] = raw[i] ^ maskByte;
+  }
+  let binary = "";
+  for (let i = 0; i < out.length; i++) {
+    binary += String.fromCharCode(out[i]);
+  }
+  const base64url = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `OBF1:${base64url}`;
+}
+
+export async function login(email: string, secret: string, remember: boolean): Promise<CurrentUser> {
   const csrf = await ensureCsrf();
-  const response = await fetch("/api/auth/login", {
+  const response = await fetch("/api/auth/session", {
     method: "POST",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       "X-SGR-XSRF": csrf,
     },
-    body: JSON.stringify({ email, password, remember }),
+    body: JSON.stringify({ email, k: obfuscateSecret(secret), remember }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
@@ -580,7 +607,12 @@ export const createStaff = (input: {
   role: StaffMember["role"];
 }) => apiRequest<StaffMember>("/api/staff", {
   method: "POST",
-  body: JSON.stringify(input),
+  body: JSON.stringify({
+    email: input.email,
+    displayName: input.displayName,
+    k: obfuscateSecret(input.password),
+    role: input.role,
+  }),
 });
 
 export const changeStaffRole = (userId: string, role: StaffMember["role"]) =>
@@ -595,14 +627,17 @@ export const changeStaffStatus = (userId: string, active: boolean) =>
     body: JSON.stringify({ userId, active }),
   });
 
-export const resetStaffPassword = (userId: string, password: string) =>
-  apiRequest<StaffMember>("/api/staff/reset-password", {
+export const resetStaffPassword = (userId: string, secret: string) =>
+  apiRequest<StaffMember>("/api/staff/credentials", {
     method: "POST",
-    body: JSON.stringify({ userId, password }),
+    body: JSON.stringify({ userId, k: obfuscateSecret(secret) }),
   });
 
-export const changeOwnPassword = (currentPassword: string, newPassword: string) =>
-  apiRequest<void>("/api/auth/change-password", {
+export const changeOwnPassword = (currentSecret: string, nextSecret: string) =>
+  apiRequest<void>("/api/auth/credentials", {
     method: "POST",
-    body: JSON.stringify({ currentPassword, newPassword }),
+    body: JSON.stringify({
+      c: obfuscateSecret(currentSecret),
+      n: obfuscateSecret(nextSecret),
+    }),
   });
