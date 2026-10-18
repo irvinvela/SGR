@@ -1,0 +1,28 @@
+services:
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3300:3000"
+    networks:
+      - sgr_public
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "127.0.0.1:38080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sgr_public
+      - sgr_database
+
+networks:
+  sgr_public:
+  sgr_database:
+    internal: true

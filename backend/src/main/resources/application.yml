@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: sgr-api
+  datasource:
+    url: ${SGR_DB_URL:ENC(Nz24zav55oYNAUR/8DZLpW07uUCSS+778zKARb4Y0CBqGjMKQIaHDBY7wjU6wVvdQ0Y5fakVs/TQ2fBYEZgwpVgyGUylmb8D9uo9/EVQnq0lesctdPiyWEhJ0e3KjR6m/9jjaxKOzw4KDSGyGnkQuc1PwHpDww==)}
+    username: ${SGR_DB_USERNAME}
+    password: ${SGR_DB_PASSWORD}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    hikari:
+      maximum-pool-size: ${SGR_DB_POOL_SIZE:10}
+      minimum-idle: 2
+      connection-timeout: 10000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    user: ${SGR_MIGRATION_DB_USERNAME:${SGR_DB_USERNAME}}
+    password: ${SGR_MIGRATION_DB_PASSWORD:${SGR_DB_PASSWORD}}
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+sgr:
+  security:
+    jwt-secret: ${SGR_JWT_SECRET}
+    issuer: ${SGR_JWT_ISSUER:https://semaialabs.com}
+    access-token-minutes: ${SGR_ACCESS_TOKEN_MINUTES:480}
+    remember-token-days: ${SGR_REMEMBER_TOKEN_DAYS:7}
+    secure-cookie: ${SGR_SECURE_COOKIE:true}
+
+logging:
+  level:
+    org.springframework.security: INFO
+    org.flywaydb.core.FlywayExecutor: WARN
