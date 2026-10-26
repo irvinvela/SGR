@@ -222,13 +222,7 @@ public class AuthController {
     }
 
     private ResponseCookie expiredAccessCookie() {
-        return ResponseCookie.from(CookieBearerTokenResolver.COOKIE_NAME, "")
-                .httpOnly(true)
-                .secure(securityProperties.secureCookie())
-                .sameSite("Strict")
-                .path("/")
-                .maxAge(0)
-                .build();
+        return CookieBearerTokenResolver.clearAccessCookie(securityProperties.secureCookie());
     }
 
     private void writeAudit(SgrUser user, String event, HttpServletRequest request) {

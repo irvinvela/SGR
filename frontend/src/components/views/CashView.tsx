@@ -24,6 +24,7 @@ export default function CashView() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [openShiftModal, setOpenShiftModal] = useState(false);
 
   useEffect(() => {
     listLocations()
@@ -37,6 +38,21 @@ export default function CashView() {
   useEffect(() => {
     if (locationId) refresh(locationId);
   }, [locationId]);
+
+  useEffect(() => {
+    if (!openShiftModal) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) setOpenShiftModal(false);
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [openShiftModal, busy]);
+
+  function showOpenShiftModal() {
+    setError("");
+    setNotice("");
+    setOpenShiftModal(true);
+  }
 
   async function refresh(selectedLocationId = locationId) {
     try {
@@ -67,6 +83,7 @@ export default function CashView() {
       setOpenRetryKey("");
       setNotice("Turno de caja abierto.");
       await refresh();
+      setOpenShiftModal(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo abrir el turno");
     } finally {
@@ -124,7 +141,7 @@ export default function CashView() {
 
   return (
     <>
-      <div className="toolbar">
+      <div className="toolbar cash-toolbar">
         <label>
           Local
           <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
@@ -133,21 +150,21 @@ export default function CashView() {
             ))}
           </select>
         </label>
+        <div className="cash-creation-actions">
+          <button
+            type="button"
+            className="toolbar-action-button"
+            onClick={showOpenShiftModal}
+            disabled={!locationId || Boolean(current)}
+            title={current ? "Ya existe un turno abierto para este local" : undefined}
+          >
+            <CashRegisterIcon />
+            <span>Abrir turno</span>
+          </button>
+        </div>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="success" role="status">{notice}</p>}
-
-      {!current && locationId && (
-        <form className="form-card cash-open-form" onSubmit={openShift}>
-          <h2>Abrir turno</h2>
-          <p>Indica el fondo inicial disponible en efectivo.</p>
-          <label>
-            Fondo inicial
-            <input name="openingAmount" type="number" min="0" step="0.01" defaultValue="0.00" required />
-          </label>
-          <button className="primary-button" disabled={busy}>Abrir caja</button>
-        </form>
-      )}
 
       {current && (
         <>
@@ -245,6 +262,72 @@ export default function CashView() {
           <p className="empty-state">Todavía no hay turnos cerrados.</p>
         )}
       </section>
+      {openShiftModal && !current && (
+        <div
+          className="creation-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !busy) setOpenShiftModal(false);
+          }}
+        >
+          <section
+            className="creation-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cash-shift-modal-title"
+          >
+            <header>
+              <div className="creation-modal-title">
+                <span><CashRegisterIcon /></span>
+                <div>
+                  <p>Turnos de caja</p>
+                  <h2 id="cash-shift-modal-title">Abrir turno</h2>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="creation-modal-close"
+                aria-label="Cerrar"
+                onClick={() => setOpenShiftModal(false)}
+                disabled={busy}
+              >
+                ×
+              </button>
+            </header>
+            {error && <p className="error" role="alert">{error}</p>}
+            <form className="creation-modal-form" onSubmit={openShift}>
+              <p className="creation-modal-description">
+                Indica el fondo inicial disponible en efectivo.
+              </p>
+              <label>
+                Fondo inicial
+                <input
+                  name="openingAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue="0.00"
+                  autoFocus
+                  required
+                />
+              </label>
+              <div className="creation-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setOpenShiftModal(false)}
+                  disabled={busy}
+                >
+                  Cancelar
+                </button>
+                <button className="primary-button" disabled={busy || !locationId}>
+                  {busy ? "Abriendo…" : "Abrir caja"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -259,5 +342,13 @@ function Metric({ label, value, emphasized = false }: {
       <span>{label}</span>
       <strong>{money.format(value)}</strong>
     </div>
+  );
+}
+
+function CashRegisterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 9h14v10H5zM8 9V5h7l2 4M8 13h3M14 13h2M8 16h8" />
+    </svg>
   );
 }

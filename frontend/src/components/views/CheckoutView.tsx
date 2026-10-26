@@ -217,7 +217,7 @@ export default function CheckoutView() {
                 <h2>{summary.tableName}</h2>
               </div>
               <span className={`payment-state ${summary.status.toLowerCase()}`}>
-                {summary.status === "PAID" ? "Pagado" : "Pendiente"}
+                {summary.status === "PAID" ? "Pagado" : "Cuenta solicitada"}
               </span>
             </header>
             <dl className="payment-totals">

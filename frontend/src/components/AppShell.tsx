@@ -13,13 +13,15 @@ export type NavIconName =
   | "cash"
   | "sales"
   | "staff"
+  | "reports"
   | "account";
 
 type NavigationContextValue = {
   user: CurrentUser;
   activeSection: NavIconName;
   selectedOrderId?: string;
-  navigate: (section: NavIconName, options?: { orderId?: string }) => void;
+  selectedTableId?: string;
+  navigate: (section: NavIconName, options?: { orderId?: string; tableId?: string }) => void;
 };
 
 const IDLE_ACTIVITY_KEY = "sgr.lastActivity";
@@ -41,7 +43,7 @@ type AppShellProps = {
   user: CurrentUser;
   title: string;
   activeSection: NavIconName;
-  onNavigate: (section: NavIconName, options?: { orderId?: string }) => void;
+  onNavigate: (section: NavIconName, options?: { orderId?: string; tableId?: string }) => void;
   children: ReactNode;
 };
 
@@ -116,6 +118,17 @@ export function NavIcon({ name }: { name: NavIconName }) {
           <path d="M15.5 19c.4-2.1 2-3.6 4.2-3.8" />
         </svg>
       );
+    case "reports":
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+          <path d="M4 19.5h16" />
+          <path d="m6.5 15 3.2-3.5 3 2 4.8-6" />
+          <circle cx="6.5" cy="15" r="1" />
+          <circle cx="9.7" cy="11.5" r="1" />
+          <circle cx="12.7" cy="13.5" r="1" />
+          <circle cx="17.5" cy="7.5" r="1" />
+        </svg>
+      );
     case "account":
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
@@ -136,6 +149,7 @@ const navigation: Array<{ label: string; icon: NavIconName; roles?: string[] }> 
   { label: "Turnos", icon: "cash", roles: ["OWNER", "MANAGER", "CASHIER"] },
   { label: "Ventas", icon: "sales", roles: ["OWNER", "MANAGER", "CASHIER"] },
   { label: "Personal", icon: "staff", roles: ["OWNER", "MANAGER"] },
+  { label: "Reportes", icon: "reports", roles: ["OWNER", "MANAGER"] },
   { label: "Mi cuenta", icon: "account" },
 ];
 
@@ -190,6 +204,7 @@ export function AppShell({ user, title, activeSection, onNavigate, children }: A
         window.sessionStorage.setItem(IDLE_REASON_KEY, "Sesión cerrada por inactividad.");
         window.sessionStorage.removeItem("sgr.activeSection");
         window.sessionStorage.removeItem("sgr.selectedOrderId");
+        window.sessionStorage.removeItem("sgr.selectedTableId");
         window.localStorage.removeItem(IDLE_ACTIVITY_KEY);
       } catch {
         // ignore
@@ -300,6 +315,7 @@ export function AppShell({ user, title, activeSection, onNavigate, children }: A
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem("sgr.activeSection");
       window.sessionStorage.removeItem("sgr.selectedOrderId");
+      window.sessionStorage.removeItem("sgr.selectedTableId");
       window.localStorage.removeItem(IDLE_ACTIVITY_KEY);
       window.location.replace("/");
     }

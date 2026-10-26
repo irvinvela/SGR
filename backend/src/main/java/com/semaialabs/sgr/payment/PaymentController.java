@@ -130,6 +130,71 @@ public class PaymentController {
         return findSummary(organizationId, request.orderId());
     }
 
+    @PostMapping("/correct")
+    @PreAuthorize(CHECKOUT_ROLES)
+    @Transactional
+    public OrderPaymentSummary correctPayment(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody RequestPaymentRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        OrderLock order = lockOrder(organizationId, request.orderId());
+        if ("OPEN".equals(order.status()) && order.closedAt() == null) {
+            return findSummary(organizationId, request.orderId());
+        }
+        if (!"WAITING_PAYMENT".equals(order.status()) || order.closedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "El pedido no está pendiente de pago");
+        }
+        if (order.version() != request.expectedVersion()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "El pedido cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        if (paidTotal(organizationId, request.orderId()).signum() != 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Reembolse el saldo cobrado antes de corregir la cuenta"
+            );
+        }
+
+        int updated = jdbc.sql("""
+                UPDATE restaurant_orders
+                SET status = 'OPEN',
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :orderId
+                  AND organization_id = :organizationId
+                  AND status = 'WAITING_PAYMENT'
+                  AND version = :expectedVersion
+                """)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .param("expectedVersion", request.expectedVersion())
+                .update();
+        if (updated == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "El pedido cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        jdbc.sql("""
+                UPDATE dining_tables
+                SET status = 'OCCUPIED',
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :tableId
+                  AND organization_id = :organizationId
+                  AND status = 'WAITING_PAYMENT'
+                """)
+                .param("tableId", order.tableId())
+                .param("organizationId", organizationId)
+                .update();
+
+        audit.record(jwt, "PAYMENT_REQUEST_CORRECTED", "restaurant_order", request.orderId(), Map.of());
+        return findSummary(organizationId, request.orderId());
+    }
+
     @PostMapping
     @PreAuthorize(CHECKOUT_ROLES)
     @Transactional

@@ -196,6 +196,46 @@ export type DailySales = {
   sales: Sale[];
 };
 
+export type ReportDashboard = {
+  locationId: string;
+  locationName: string;
+  timezone: string;
+  currency: string;
+  from: string;
+  to: string;
+  orderCount: number;
+  activeProducts: number;
+  grossSales: number;
+  refunds: number;
+  netSales: number;
+  dailySales: Array<{
+    date: string;
+    orderCount: number;
+    grossSales: number;
+    refunds: number;
+    netSales: number;
+  }>;
+  categories: Array<{
+    categoryId: string;
+    name: string;
+    activeProducts: number;
+  }>;
+  bestSellingProducts: Array<{
+    productId: string;
+    name: string;
+    sku: string;
+    quantitySold: number;
+    grossSales: number;
+  }>;
+  paymentMethods: Array<{
+    method: "CASH" | "CARD";
+    paymentCount: number;
+    grossAmount: number;
+    refunds: number;
+    netAmount: number;
+  }>;
+};
+
 export type SalesReceipt = {
   documentType: "PAYMENT_RECEIPT";
   fiscalDocument: false;
@@ -516,6 +556,12 @@ export const requestOrderPayment = (orderId: string, expectedVersion: number) =>
     body: JSON.stringify({ orderId, expectedVersion }),
   });
 
+export const correctOrderPayment = (orderId: string, expectedVersion: number) =>
+  apiRequest<OrderPaymentSummary>("/api/payments/correct", {
+    method: "POST",
+    body: JSON.stringify({ orderId, expectedVersion }),
+  });
+
 export const getOrderPaymentSummary = (orderId: string) =>
   apiRequest<OrderPaymentSummary>(
     `/api/payments/summary?orderId=${encodeURIComponent(orderId)}`,
@@ -576,6 +622,11 @@ export const closeCashShift = (input: {
 export const getDailySales = (locationId: string, businessDate: string) =>
   apiRequest<DailySales>(
     `/api/sales?locationId=${encodeURIComponent(locationId)}&businessDate=${encodeURIComponent(businessDate)}`,
+  );
+
+export const getReportDashboard = (locationId: string, from: string, to: string) =>
+  apiRequest<ReportDashboard>(
+    `/api/reports/dashboard?locationId=${encodeURIComponent(locationId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
 
 export const getSalesReceipt = (orderId: string) =>
