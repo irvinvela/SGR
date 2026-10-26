@@ -2761,9 +2761,19 @@ select:focus {
   padding-bottom: 0.5rem;
 }
 
-.pos-lines small {
+.pos-lines small,
+.pos-lines em {
   display: block;
   color: var(--muted);
+}
+
+.pos-lines em {
+  font-style: italic;
+}
+
+.pos-lines .inline-link-button {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
 }
 
 .pos-qty {

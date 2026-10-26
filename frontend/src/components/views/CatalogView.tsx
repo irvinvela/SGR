@@ -13,6 +13,7 @@ import {
   listCategories,
   listLocations,
   listProducts,
+  updateProduct,
 } from "@/lib/api";
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
@@ -27,6 +28,7 @@ export default function CatalogView() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [creationModal, setCreationModal] = useState<"category" | "product" | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     listLocations()
@@ -49,13 +51,16 @@ export default function CatalogView() {
   }, [locationId]);
 
   useEffect(() => {
-    if (!creationModal) return;
+    if (!creationModal && !editingProduct) return;
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !busy) setCreationModal(null);
+      if (event.key === "Escape" && !busy) {
+        setCreationModal(null);
+        setEditingProduct(null);
+      }
     }
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [creationModal, busy]);
+  }, [creationModal, editingProduct, busy]);
 
   function openCreationModal(modal: "category" | "product") {
     setError("");
@@ -106,6 +111,33 @@ export default function CatalogView() {
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo crear el producto");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingProduct) return;
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      const updated = await updateProduct({
+        productId: editingProduct.id,
+        categoryId: String(form.get("categoryId")),
+        name: String(form.get("name")),
+        sku: String(form.get("sku")),
+        description: String(form.get("description")),
+        price: Number(form.get("price")),
+        taxRate: Number(form.get("taxRate")),
+        expectedVersion: editingProduct.version,
+      });
+      setProducts((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setEditingProduct(null);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar el producto");
+      if (locationId) setProducts(await listProducts(locationId));
     } finally {
       setBusy(false);
     }
@@ -215,13 +247,26 @@ export default function CatalogView() {
               <small>IVA {product.taxRate}%</small>
             </div>
             {canManage(user) && (
-              <button
-                className="secondary-button"
-                disabled={busy}
-                onClick={() => toggleAvailability(product)}
-              >
-                {product.available ? "Marcar no disponible" : "Restaurar"}
-              </button>
+              <div className="table-card-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => {
+                    setError("");
+                    setEditingProduct(product);
+                  }}
+                >
+                  Editar
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => toggleAvailability(product)}
+                >
+                  {product.available ? "Marcar no disponible" : "Restaurar"}
+                </button>
+              </div>
             )}
           </article>
         ))}
@@ -360,6 +405,95 @@ export default function CatalogView() {
                 </div>
               </form>
             )}
+          </section>
+        </div>
+      )}
+      {editingProduct && (
+        <div
+          className="creation-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !busy) setEditingProduct(null);
+          }}
+        >
+          <section
+            className="creation-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="catalog-edit-modal-title"
+          >
+            <header>
+              <div className="creation-modal-title">
+                <span><ProductIcon /></span>
+                <div>
+                  <p>Catálogo</p>
+                  <h2 id="catalog-edit-modal-title">Editar producto</h2>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="creation-modal-close"
+                aria-label="Cerrar"
+                onClick={() => setEditingProduct(null)}
+                disabled={busy}
+              >
+                ×
+              </button>
+            </header>
+            {error && <p className="error" role="alert">{error}</p>}
+            <form className="creation-modal-form" onSubmit={saveProduct}>
+              <label>
+                Categoría
+                <select name="categoryId" defaultValue={editingProduct.categoryId} autoFocus required>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Nombre del producto
+                <input name="name" maxLength={160} defaultValue={editingProduct.name} required />
+              </label>
+              <label>
+                SKU
+                <input name="sku" maxLength={64} defaultValue={editingProduct.sku} required />
+              </label>
+              <label>
+                Descripción
+                <input name="description" maxLength={500} defaultValue={editingProduct.description ?? ""} />
+              </label>
+              <div className="split-fields">
+                <label>
+                  Precio
+                  <input name="price" type="number" min="0" step="0.01" defaultValue={editingProduct.price} required />
+                </label>
+                <label>
+                  IVA %
+                  <input
+                    name="taxRate"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    defaultValue={editingProduct.taxRate}
+                    required
+                  />
+                </label>
+              </div>
+              <div className="creation-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setEditingProduct(null)}
+                  disabled={busy}
+                >
+                  Cancelar
+                </button>
+                <button className="primary-button" disabled={busy}>
+                  {busy ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       )}

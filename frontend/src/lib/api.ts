@@ -487,6 +487,20 @@ export const createProduct = (input: {
   body: JSON.stringify(input),
 });
 
+export const updateProduct = (input: {
+  productId: string;
+  categoryId: string;
+  name: string;
+  sku: string;
+  description?: string;
+  price: number;
+  taxRate: number;
+  expectedVersion: number;
+}) => apiRequest<Product>("/api/catalog/products", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
 export const changeProductAvailability = (input: {
   productId: string;
   available: boolean;

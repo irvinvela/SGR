@@ -174,6 +174,58 @@ public class CatalogController {
         );
     }
 
+    @PatchMapping("/products")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
+    @Transactional
+    public ProductResponse updateProduct(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody UpdateProductRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        ProductResponse current = findProduct(organizationId, request.productId());
+        String categoryName = requireCategory(organizationId, current.locationId(), request.categoryId());
+        String sku = normalizeCode(request.sku());
+        String description = request.description() == null || request.description().isBlank()
+                ? null
+                : request.description().trim();
+        int updated = jdbc.sql("""
+                UPDATE products
+                SET category_id = :categoryId,
+                    name = :name,
+                    sku = :sku,
+                    description = :description,
+                    price = :price,
+                    tax_rate = :taxRate,
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :id
+                  AND organization_id = :organizationId
+                  AND version = :expectedVersion
+                  AND active = 1
+                """)
+                .param("categoryId", request.categoryId())
+                .param("name", request.name().trim())
+                .param("sku", sku)
+                .param("description", description)
+                .param("price", request.price())
+                .param("taxRate", request.taxRate())
+                .param("id", request.productId())
+                .param("organizationId", organizationId)
+                .param("expectedVersion", request.expectedVersion())
+                .update();
+        if (updated == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "El producto cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        audit.record(
+                jwt, "PRODUCT_UPDATED", "product", request.productId(),
+                Map.of("sku", sku, "category", categoryName)
+        );
+        return findProduct(organizationId, request.productId());
+    }
+
     @PatchMapping("/products/availability")
     @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
     @Transactional
@@ -288,6 +340,18 @@ public class CatalogController {
             @Size(max = 500) String description,
             @NotNull @DecimalMin("0.00") BigDecimal price,
             @NotNull @DecimalMin("0.00") @DecimalMax("100.00") BigDecimal taxRate
+    ) {
+    }
+
+    public record UpdateProductRequest(
+            @NotNull UUID productId,
+            @NotNull UUID categoryId,
+            @NotBlank @Size(max = 160) String name,
+            @NotBlank @Size(max = 64) String sku,
+            @Size(max = 500) String description,
+            @NotNull @DecimalMin("0.00") BigDecimal price,
+            @NotNull @DecimalMin("0.00") @DecimalMax("100.00") BigDecimal taxRate,
+            @Min(0) long expectedVersion
     ) {
     }
 

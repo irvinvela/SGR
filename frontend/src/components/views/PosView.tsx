@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAppNavigation } from "@/components/AppShell";
 import {
   CurrentUser,
@@ -8,6 +8,7 @@ import {
   DiningTable,
   Location,
   MenuCategory,
+  OrderItem,
   Product,
   RestaurantOrder,
   addOrderItem,
@@ -62,7 +63,10 @@ export default function PosView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [noteDraft, setNoteDraft] = useState<{ product?: Product; item?: OrderItem } | null>(null);
+  const [noteText, setNoteText] = useState("");
   const appliedNav = useRef("");
+  const pressTimer = useRef<number | null>(null);
 
   useEffect(() => {
     listLocations()
@@ -177,7 +181,7 @@ export default function PosView() {
     if (table.status === "FREE" || table.status === "RESERVED") await openTable(table.id);
   }
 
-  async function addProduct(product: Product) {
+  async function addProduct(product: Product, kitchenNote?: string) {
     if (!selected) {
       setError("Selecciona o abre una mesa para añadir productos.");
       setPane("tables");
@@ -188,10 +192,15 @@ export default function PosView() {
       setPane("ticket");
       return;
     }
+    setError("");
     setBusy(true);
     try {
+      const note = kitchenNote?.trim() || undefined;
       const existing = selected.items.find((item) => (
-        item.productId === product.id && !item.sentToKitchen && !item.voided
+        item.productId === product.id
+        && !item.sentToKitchen
+        && !item.voided
+        && (item.kitchenNote ?? "") === (note ?? "")
       ));
       if (existing) {
         await editOrderItem({
@@ -205,11 +214,62 @@ export default function PosView() {
           orderId: selected.id,
           productId: product.id,
           quantity: 1,
+          kitchenNote: note,
         });
       }
+      setNoteDraft(null);
+      setNoteText("");
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo añadir el producto");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function cancelPress() {
+    if (pressTimer.current) {
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  }
+
+  function startProductPress(product: Product) {
+    cancelPress();
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      setNoteDraft({ product });
+      setNoteText("");
+    }, 450);
+  }
+
+  function finishProductPress(product: Product) {
+    if (pressTimer.current) {
+      cancelPress();
+      addProduct(product);
+    }
+  }
+
+  async function saveNote(event: FormEvent) {
+    event.preventDefault();
+    if (noteDraft?.product) {
+      await addProduct(noteDraft.product, noteText);
+      return;
+    }
+    if (!noteDraft?.item || !selected) return;
+    setBusy(true);
+    try {
+      await editOrderItem({
+        itemId: noteDraft.item.id,
+        quantity: noteDraft.item.quantity,
+        kitchenNote: noteText.trim(),
+        expectedVersion: noteDraft.item.version,
+      });
+      setNoteDraft(null);
+      setNoteText("");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar la nota");
     } finally {
       setBusy(false);
     }
@@ -415,6 +475,7 @@ export default function PosView() {
         <section className="pos-menu" aria-label="Carta">
           <header className="pos-pane-head">
             <h2>Carta</h2>
+            <small>Mantén pulsado para nota de cocina</small>
             <input
               type="search"
               value={query}
@@ -441,13 +502,22 @@ export default function PosView() {
           </div>
           <div className="pos-product-grid">
             {visibleProducts.map((product) => (
-              <button
-                type="button"
-                className="pos-product"
-                key={product.id}
-                disabled={busy || !canOperate(user)}
-                onClick={() => addProduct(product)}
-              >
+                <button
+                  type="button"
+                  className="pos-product"
+                  key={product.id}
+                  disabled={busy || !canOperate(user)}
+                  onPointerDown={() => startProductPress(product)}
+                  onPointerUp={() => finishProductPress(product)}
+                  onPointerCancel={cancelPress}
+                  onPointerLeave={cancelPress}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    cancelPress();
+                    setNoteDraft({ product });
+                    setNoteText("");
+                  }}
+                >
                 <small>{product.categoryName}</small>
                 <strong>{product.name}</strong>
                 <span>{money.format(product.price)}</span>
@@ -481,6 +551,20 @@ export default function PosView() {
                     <div>
                       <strong>{item.productName}</strong>
                       <small>{item.sentToKitchen ? "Enviado" : "Sin enviar"} · {money.format(item.quantity * item.unitPrice)}</small>
+                      {item.kitchenNote && <em>{item.kitchenNote}</em>}
+                      {selected.status === "OPEN" && !item.sentToKitchen && (
+                        <button
+                          type="button"
+                          className="inline-link-button"
+                          disabled={busy}
+                          onClick={() => {
+                            setNoteDraft({ item });
+                            setNoteText(item.kitchenNote ?? "");
+                          }}
+                        >
+                          {item.kitchenNote ? "Editar nota" : "Nota de cocina"}
+                        </button>
+                      )}
                     </div>
                     {selected.status === "OPEN" && !item.sentToKitchen ? (
                       <div className="pos-qty">
@@ -555,6 +639,51 @@ export default function PosView() {
         </section>
       </div>
 
+      {noteDraft && (
+        <div
+          className="creation-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !busy) setNoteDraft(null);
+          }}
+        >
+          <section className="creation-modal" role="dialog" aria-modal="true" aria-labelledby="pos-note-title">
+            <header>
+              <div className="creation-modal-title">
+                <div>
+                  <p>Cocina</p>
+                  <h2 id="pos-note-title">
+                    {noteDraft.product ? `Nota · ${noteDraft.product.name}` : "Nota de cocina"}
+                  </h2>
+                </div>
+              </div>
+              <button type="button" className="creation-modal-close" aria-label="Cerrar" onClick={() => setNoteDraft(null)} disabled={busy}>
+                ×
+              </button>
+            </header>
+            <form className="creation-modal-form" onSubmit={saveNote}>
+              <label>
+                Nota para cocina
+                <input
+                  value={noteText}
+                  onChange={(event) => setNoteText(event.target.value)}
+                  maxLength={500}
+                  autoFocus
+                  placeholder="Ej. sin cebolla, extra ají"
+                />
+              </label>
+              <div className="creation-modal-actions">
+                <button type="button" className="secondary-button" onClick={() => setNoteDraft(null)} disabled={busy}>
+                  Cancelar
+                </button>
+                <button className="primary-button" disabled={busy}>
+                  {noteDraft.product ? "Añadir" : "Guardar"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
       <nav className="pos-mobile-nav" aria-label="Punto de venta">
         <button type="button" aria-pressed={pane === "tables"} onClick={() => setPane("tables")}>Mesas</button>
         <button type="button" aria-pressed={pane === "menu"} onClick={() => setPane("menu")}>Carta</button>
