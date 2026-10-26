@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CurrentUser } from "@/lib/api";
 import { AppShell, NavIcon, NavIconName, NavigationContext } from "@/components/AppShell";
+import PosView from "@/components/views/PosView";
 import TablesView from "@/components/views/TablesView";
 import CatalogView from "@/components/views/CatalogView";
 import OrdersView from "@/components/views/OrdersView";
@@ -16,6 +17,7 @@ import AccountView from "@/components/views/AccountView";
 
 const sectionTitles: Record<NavIconName, string> = {
   home: "Centro de operaciones",
+  pos: "Punto de Venta",
   tables: "Salones y mesas",
   catalog: "Catálogo",
   orders: "Pedidos",
@@ -34,6 +36,7 @@ const modules: Array<{
   icon: NavIconName;
   roles?: string[];
 }> = [
+  { title: "Punto de Venta", icon: "pos", description: "Abre mesas, añade carta y cobra en el mismo flujo de sala.", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
   { title: "Mesas y salones", icon: "tables", description: "Configura el plano operativo y controla el estado de cada mesa." },
   { title: "Catálogo", icon: "catalog", description: "Administra categorías, productos, precios e impuestos." },
   { title: "Pedidos", icon: "orders", description: "Abre mesas, añade productos y envía rondas nuevas a cocina." },
@@ -123,6 +126,7 @@ export function WorkspaceApp({ user }: { user: CurrentUser }) {
             </section>
           </>
         )}
+        {activeSection === "pos" && <PosView />}
         {activeSection === "tables" && <TablesView />}
         {activeSection === "catalog" && <CatalogView />}
         {activeSection === "orders" && <OrdersView />}

@@ -29,7 +29,9 @@ export type DiningTable = {
   code: string;
   name: string;
   capacity: number;
-  status: "FREE" | "OCCUPIED" | "WAITING_PAYMENT" | "OUT_OF_SERVICE";
+  status: "FREE" | "OCCUPIED" | "WAITING_PAYMENT" | "OUT_OF_SERVICE" | "RESERVED";
+  posX: number;
+  posY: number;
   version: number;
 };
 
@@ -442,6 +444,16 @@ export const changeTableStatus = (input: {
   status: DiningTable["status"];
   expectedVersion: number;
 }) => apiRequest<DiningTable>("/api/dining/tables/status", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
+export const moveTable = (input: {
+  tableId: string;
+  posX: number;
+  posY: number;
+  expectedVersion: number;
+}) => apiRequest<DiningTable>("/api/dining/tables/position", {
   method: "PATCH",
   body: JSON.stringify(input),
 });

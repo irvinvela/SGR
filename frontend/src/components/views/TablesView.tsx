@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAppNavigation } from "@/components/AppShell";
 import {
   CurrentUser,
@@ -15,6 +15,7 @@ import {
   listLocations,
   listOrders,
   listTables,
+  moveTable,
 } from "@/lib/api";
 
 const statusLabels: Record<DiningTable["status"], string> = {
@@ -22,7 +23,10 @@ const statusLabels: Record<DiningTable["status"], string> = {
   OCCUPIED: "Ocupada",
   WAITING_PAYMENT: "Cuenta solicitada",
   OUT_OF_SERVICE: "Fuera de servicio",
+  RESERVED: "Reservada",
 };
+
+const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 
 type StatusFilter = "all" | DiningTable["status"];
 
@@ -38,6 +42,8 @@ export default function TablesView() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [creationModal, setCreationModal] = useState<"area" | "table" | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "plan">("plan");
+  const [layoutEdit, setLayoutEdit] = useState(false);
 
   useEffect(() => {
     listLocations()
@@ -140,12 +146,27 @@ export default function TablesView() {
     }
   }
 
+  async function savePosition(table: DiningTable, posX: number, posY: number) {
+    try {
+      const updated = await moveTable({
+        tableId: table.id,
+        posX,
+        posY,
+        expectedVersion: table.version,
+      });
+      setTables((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo mover la mesa");
+      if (locationId) setTables(await listTables(locationId));
+    }
+  }
+
   const scoped = useMemo(
     () => tables.filter((table) => areaId === "all" || table.areaId === areaId),
     [areaId, tables],
   );
   const counts = useMemo(() => {
-    const next = { all: 0, FREE: 0, OCCUPIED: 0, WAITING_PAYMENT: 0, OUT_OF_SERVICE: 0 };
+    const next = { all: 0, FREE: 0, OCCUPIED: 0, WAITING_PAYMENT: 0, OUT_OF_SERVICE: 0, RESERVED: 0 };
     scoped.forEach((table) => {
       next.all += 1;
       next[table.status] += 1;
@@ -160,8 +181,8 @@ export default function TablesView() {
 
   function openService(table: DiningTable) {
     const order = orderByTable.get(table.id);
-    if (order) navigate("orders", { orderId: order.id });
-    else if (table.status === "FREE") navigate("orders", { tableId: table.id });
+    if (order) navigate("pos", { orderId: order.id });
+    else if (table.status === "FREE" || table.status === "RESERVED") navigate("pos", { tableId: table.id });
   }
 
   return (
@@ -206,6 +227,24 @@ export default function TablesView() {
         )}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      <div className="view-toggle" role="group" aria-label="Vista de mesas">
+        <button type="button" className="service-chip" aria-pressed={viewMode === "plan"} onClick={() => setViewMode("plan")}>
+          Plano
+        </button>
+        <button type="button" className="service-chip" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}>
+          Lista
+        </button>
+        {canManage(user) && viewMode === "plan" && (
+          <button
+            type="button"
+            className="service-chip"
+            aria-pressed={layoutEdit}
+            onClick={() => setLayoutEdit((current) => !current)}
+          >
+            {layoutEdit ? "Listo" : "Mover mesas"}
+          </button>
+        )}
+      </div>
       <div className="service-filters" role="group" aria-label="Salón">
         <FilterChip
           pressed={areaId === "all"}
@@ -229,7 +268,24 @@ export default function TablesView() {
         <FilterChip pressed={statusFilter === "OCCUPIED"} label="Ocupadas" count={counts.OCCUPIED} tone="warn" onClick={() => setStatusFilter("OCCUPIED")} />
         <FilterChip pressed={statusFilter === "WAITING_PAYMENT"} label="Cuenta solicitada" count={counts.WAITING_PAYMENT} tone="bill" onClick={() => setStatusFilter("WAITING_PAYMENT")} />
         <FilterChip pressed={statusFilter === "OUT_OF_SERVICE"} label="Fuera de servicio" count={counts.OUT_OF_SERVICE} onClick={() => setStatusFilter("OUT_OF_SERVICE")} />
+        <FilterChip pressed={statusFilter === "RESERVED"} label="Reservadas" count={counts.RESERVED} tone="reserve" onClick={() => setStatusFilter("RESERVED")} />
       </div>
+      {viewMode === "plan" && (
+        <FloorPlan
+          areas={areas.filter((area) => areaId === "all" || area.id === areaId)}
+          tables={visible}
+          orders={orderByTable}
+          layoutEdit={layoutEdit && canManage(user)}
+          onOpen={openService}
+          onMove={savePosition}
+          onPreview={(tableId, posX, posY) => {
+            setTables((current) => current.map((item) => (
+              item.id === tableId ? { ...item, posX, posY } : item
+            )));
+          }}
+        />
+      )}
+      {viewMode === "list" && (
       <section className="entity-grid" aria-label="Mesas">
         {visible.map((table) => {
           const order = orderByTable.get(table.id);
@@ -249,7 +305,7 @@ export default function TablesView() {
                 {order ? ` · Pedido #${order.orderNumber} · ${order.guestCount} comensales` : ""}
               </p>
               <div className="table-card-actions">
-                {canOperate(user) && table.status === "FREE" && (
+                {canOperate(user) && (table.status === "FREE" || table.status === "RESERVED") && (
                   <button
                     type="button"
                     className="primary-button"
@@ -257,6 +313,26 @@ export default function TablesView() {
                     onClick={() => openService(table)}
                   >
                     Abrir pedido
+                  </button>
+                )}
+                {canOperate(user) && table.status === "FREE" && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => updateStatus(table, "RESERVED")}
+                  >
+                    Reservar
+                  </button>
+                )}
+                {canOperate(user) && table.status === "RESERVED" && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => updateStatus(table, "FREE")}
+                  >
+                    Quitar reserva
                   </button>
                 )}
                 {canOperate(user) && table.status === "OCCUPIED" && (
@@ -297,6 +373,7 @@ export default function TablesView() {
           );
         })}
       </section>
+      )}
       {locationId && tables.length === 0 && (
         <p className="empty-state">Todavía no hay mesas configuradas para este local.</p>
       )}
@@ -423,6 +500,87 @@ export default function TablesView() {
   );
 }
 
+function FloorPlan({
+  areas,
+  tables,
+  orders,
+  layoutEdit,
+  onOpen,
+  onMove,
+  onPreview,
+}: {
+  areas: DiningArea[];
+  tables: DiningTable[];
+  orders: Map<string, RestaurantOrder>;
+  layoutEdit: boolean;
+  onOpen: (table: DiningTable) => void;
+  onMove: (table: DiningTable, posX: number, posY: number) => void;
+  onPreview: (tableId: string, posX: number, posY: number) => void;
+}) {
+  const drag = useRef<{ id: string; moved: boolean } | null>(null);
+
+  function point(event: PointerEvent<HTMLElement>, areaEl: HTMLElement) {
+    const box = areaEl.getBoundingClientRect();
+    const x = Math.min(94, Math.max(6, ((event.clientX - box.left) / box.width) * 100));
+    const y = Math.min(90, Math.max(10, ((event.clientY - box.top) / box.height) * 100));
+    return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
+  }
+
+  return (
+    <div className="floor-plan" aria-label="Plano de mesas">
+      {areas.map((area) => {
+        const areaTables = tables.filter((table) => table.areaId === area.id);
+        return (
+          <section key={area.id} className="floor-area">
+            <h3>{area.name}</h3>
+            {areaTables.map((table) => {
+              const order = orders.get(table.id);
+              return (
+                <button
+                  type="button"
+                  key={table.id}
+                  className={`floor-table status-${table.status.toLowerCase()} ${drag.current?.id === table.id ? "dragging" : ""}`}
+                  style={{ left: `${Number(table.posX)}%`, top: `${Number(table.posY)}%` }}
+                  onPointerDown={(event) => {
+                    if (!layoutEdit) return;
+                    drag.current = { id: table.id, moved: false };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    if (!layoutEdit || drag.current?.id !== table.id) return;
+                    const areaEl = event.currentTarget.parentElement;
+                    if (!areaEl) return;
+                    drag.current.moved = true;
+                    const next = point(event, areaEl);
+                    onPreview(table.id, next.x, next.y);
+                  }}
+                  onPointerUp={(event) => {
+                    if (layoutEdit && drag.current?.id === table.id && drag.current.moved) {
+                      const areaEl = event.currentTarget.parentElement;
+                      if (areaEl) {
+                        const next = point(event, areaEl);
+                        onMove(table, next.x, next.y);
+                      }
+                      drag.current = null;
+                      return;
+                    }
+                    drag.current = null;
+                    if (!layoutEdit) onOpen(table);
+                  }}
+                >
+                  <strong>{table.name}</strong>
+                  <small>{statusLabels[table.status]}</small>
+                  {order && <small>{money.format(order.total)}</small>}
+                </button>
+              );
+            })}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function FilterChip({
   label,
   count,
@@ -433,7 +591,7 @@ function FilterChip({
   label: string;
   count: number;
   pressed: boolean;
-  tone?: "ok" | "warn" | "bill";
+  tone?: "ok" | "warn" | "bill" | "reserve";
   onClick: () => void;
 }) {
   return (

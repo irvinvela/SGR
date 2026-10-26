@@ -9,6 +9,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -101,7 +103,7 @@ public class DiningController {
         return jdbc.sql("""
                 SELECT
                     t.id, t.location_id, t.area_id, a.name AS area_name,
-                    t.code, t.name, t.capacity, t.status, t.version
+                    t.code, t.name, t.capacity, t.status, t.pos_x, t.pos_y, t.version
                 FROM dining_tables t
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE t.organization_id = :organizationId
@@ -112,17 +114,7 @@ public class DiningController {
                 """)
                 .param("organizationId", organizationId)
                 .param("locationId", locationId)
-                .query((rs, rowNum) -> new TableResponse(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("location_id", UUID.class),
-                        rs.getObject("area_id", UUID.class),
-                        rs.getString("area_name"),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getInt("capacity"),
-                        rs.getString("status"),
-                        rs.getLong("version")
-                ))
+                .query((rs, rowNum) -> mapTable(rs))
                 .list();
     }
 
@@ -136,13 +128,14 @@ public class DiningController {
         UUID organizationId = TenantContext.organizationId(jwt);
         requireArea(organizationId, request.locationId(), request.areaId());
         UUID id = UUID.randomUUID();
+        BigDecimal[] position = autoPos(organizationId, request.areaId());
         jdbc.sql("""
                 INSERT INTO dining_tables (
                     id, organization_id, location_id, area_id,
-                    code, name, capacity
+                    code, name, capacity, pos_x, pos_y
                 ) VALUES (
                     :id, :organizationId, :locationId, :areaId,
-                    :code, :name, :capacity
+                    :code, :name, :capacity, :posX, :posY
                 )
                 """)
                 .param("id", id)
@@ -152,14 +145,46 @@ public class DiningController {
                 .param("code", normalizeCode(request.code()))
                 .param("name", request.name().trim())
                 .param("capacity", request.capacity())
+                .param("posX", position[0])
+                .param("posY", position[1])
                 .update();
-        String areaName = areaName(request.areaId());
         audit.record(jwt, "DINING_TABLE_CREATED", "dining_table", id, Map.of("code", normalizeCode(request.code())));
-        return new TableResponse(
-                id, request.locationId(), request.areaId(), areaName,
-                normalizeCode(request.code()), request.name().trim(),
-                request.capacity(), "FREE", 0
-        );
+        return findTable(organizationId, id);
+    }
+
+    @PatchMapping("/tables/position")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
+    @Transactional
+    public TableResponse moveTable(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody MoveTableRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        int updated = jdbc.sql("""
+                UPDATE dining_tables
+                SET pos_x = :posX,
+                    pos_y = :posY,
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :id
+                  AND organization_id = :organizationId
+                  AND version = :expectedVersion
+                  AND active = 1
+                """)
+                .param("posX", clampPos(request.posX()))
+                .param("posY", clampPos(request.posY()))
+                .param("id", request.tableId())
+                .param("organizationId", organizationId)
+                .param("expectedVersion", request.expectedVersion())
+                .update();
+        if (updated == 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "La mesa cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        audit.record(jwt, "DINING_TABLE_MOVED", "dining_table", request.tableId(), Map.of());
+        return findTable(organizationId, request.tableId());
     }
 
     @PatchMapping("/tables/status")
@@ -181,14 +206,14 @@ public class DiningController {
                 .param("organizationId", organizationId)
                 .query(Integer.class)
                 .single();
-        if (activeOrders > 0 && !"OCCUPIED".equals(request.status())) {
+        if (activeOrders > 0 && !List.of("OCCUPIED", "WAITING_PAYMENT").contains(request.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "La mesa tiene un pedido abierto y su estado es gestionado por el pedido"
             );
         }
         if (activeOrders == 0
-                && !List.of("FREE", "OUT_OF_SERVICE").contains(request.status())) {
+                && !List.of("FREE", "OUT_OF_SERVICE", "RESERVED").contains(request.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Abra un pedido para ocupar la mesa"
@@ -267,25 +292,66 @@ public class DiningController {
         return jdbc.sql("""
                 SELECT
                     t.id, t.location_id, t.area_id, a.name AS area_name,
-                    t.code, t.name, t.capacity, t.status, t.version
+                    t.code, t.name, t.capacity, t.status, t.pos_x, t.pos_y, t.version
                 FROM dining_tables t
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE t.id = :id AND t.organization_id = :organizationId
                 """)
                 .param("id", tableId)
                 .param("organizationId", organizationId)
-                .query((rs, rowNum) -> new TableResponse(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("location_id", UUID.class),
-                        rs.getObject("area_id", UUID.class),
-                        rs.getString("area_name"),
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getInt("capacity"),
-                        rs.getString("status"),
-                        rs.getLong("version")
-                ))
+                .query((rs, rowNum) -> mapTable(rs))
                 .single();
+    }
+
+    private TableResponse mapTable(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new TableResponse(
+                rs.getObject("id", UUID.class),
+                rs.getObject("location_id", UUID.class),
+                rs.getObject("area_id", UUID.class),
+                rs.getString("area_name"),
+                rs.getString("code"),
+                rs.getString("name"),
+                rs.getInt("capacity"),
+                rs.getString("status"),
+                rs.getBigDecimal("pos_x"),
+                rs.getBigDecimal("pos_y"),
+                rs.getLong("version")
+        );
+    }
+
+    private BigDecimal[] autoPos(UUID organizationId, UUID areaId) {
+        List<BigDecimal[]> used = jdbc.sql("""
+                SELECT pos_x, pos_y
+                FROM dining_tables
+                WHERE organization_id = :organizationId AND area_id = :areaId AND active = 1
+                """)
+                .param("organizationId", organizationId)
+                .param("areaId", areaId)
+                .query((rs, rowNum) -> new BigDecimal[] {
+                        rs.getBigDecimal("pos_x"),
+                        rs.getBigDecimal("pos_y")
+                })
+                .list();
+        double[] xs = {12, 36, 60, 84};
+        double[] ys = {14, 42, 70};
+        for (double y : ys) {
+            for (double x : xs) {
+                boolean taken = used.stream().anyMatch(point ->
+                        Math.hypot(point[0].doubleValue() - x, point[1].doubleValue() - y) < 16
+                );
+                if (!taken) {
+                    return new BigDecimal[] {BigDecimal.valueOf(x), BigDecimal.valueOf(y)};
+                }
+            }
+        }
+        return new BigDecimal[] {
+                BigDecimal.valueOf(12 + used.size() % 4 * 24),
+                BigDecimal.valueOf(86)
+        };
+    }
+
+    private BigDecimal clampPos(BigDecimal value) {
+        return value.max(BigDecimal.ZERO).min(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
     }
 
     private String normalizeCode(String value) {
@@ -310,7 +376,15 @@ public class DiningController {
 
     public record ChangeTableStatusRequest(
             @NotNull UUID tableId,
-            @NotBlank @Pattern(regexp = "FREE|OCCUPIED|WAITING_PAYMENT|OUT_OF_SERVICE") String status,
+            @NotBlank @Pattern(regexp = "FREE|OCCUPIED|WAITING_PAYMENT|OUT_OF_SERVICE|RESERVED") String status,
+            @Min(0) long expectedVersion
+    ) {
+    }
+
+    public record MoveTableRequest(
+            @NotNull UUID tableId,
+            @NotNull @jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.DecimalMax("100") BigDecimal posX,
+            @NotNull @jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.DecimalMax("100") BigDecimal posY,
             @Min(0) long expectedVersion
     ) {
     }
@@ -327,6 +401,8 @@ public class DiningController {
             String name,
             int capacity,
             String status,
+            BigDecimal posX,
+            BigDecimal posY,
             long version
     ) {
     }

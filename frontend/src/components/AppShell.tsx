@@ -5,6 +5,7 @@ import { CurrentUser, logout } from "@/lib/api";
 
 export type NavIconName =
   | "home"
+  | "pos"
   | "tables"
   | "catalog"
   | "orders"
@@ -55,6 +56,14 @@ export function NavIcon({ name }: { name: NavIconName }) {
           <path d="M3 10.5 12 3l9 7.5" />
           <path d="M5.5 9.5V20h13V9.5" />
           <path d="M9.5 20v-5.5h5V20" />
+        </svg>
+      );
+    case "pos":
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="nav-icon">
+          <circle cx="8" cy="21" r="1" />
+          <circle cx="19" cy="21" r="1" />
+          <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
         </svg>
       );
     case "tables":
@@ -141,6 +150,7 @@ export function NavIcon({ name }: { name: NavIconName }) {
 
 const navigation: Array<{ label: string; icon: NavIconName; roles?: string[] }> = [
   { label: "Inicio", icon: "home" },
+  { label: "Punto de Venta", icon: "pos", roles: ["OWNER", "MANAGER", "CASHIER", "SERVER"] },
   { label: "Mesas", icon: "tables" },
   { label: "Catálogo", icon: "catalog" },
   { label: "Pedidos", icon: "orders" },

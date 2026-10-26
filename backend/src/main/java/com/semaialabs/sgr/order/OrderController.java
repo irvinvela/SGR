@@ -114,7 +114,7 @@ public class OrderController {
                 SET status = 'OCCUPIED', version = version + 1, updated_at = SYSUTCDATETIME()
                 WHERE id = :tableId
                   AND organization_id = :organizationId
-                  AND status = 'FREE'
+                  AND status IN ('FREE', 'RESERVED')
                   AND active = 1
                 """)
                 .param("tableId", request.tableId())
