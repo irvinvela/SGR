@@ -22,13 +22,31 @@ const statusLabels: Record<DiningTable["status"], string> = {
   FREE: "Libre",
   OCCUPIED: "Ocupada",
   WAITING_PAYMENT: "Cuenta solicitada",
-  OUT_OF_SERVICE: "Fuera de servicio",
+  OUT_OF_SERVICE: "Desactivada",
   RESERVED: "Reservada",
 };
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 
 type StatusFilter = "all" | DiningTable["status"];
+type HallMode = "service" | "edit";
+
+function isBusyStatus(status: DiningTable["status"]) {
+  return status === "OCCUPIED" || status === "WAITING_PAYMENT";
+}
+
+function occupancyLabel(tables: DiningTable[]) {
+  const busy = tables.filter((table) => isBusyStatus(table.status)).length;
+  return `${busy} de ${tables.length} ocupadas`;
+}
+
+function formatElapsed(openedAt: string, now: number) {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(openedAt)) / 60000));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return `${hours} h ${rest} min`;
+}
 
 export default function TablesView() {
   const { user, navigate } = useAppNavigation();
@@ -42,8 +60,11 @@ export default function TablesView() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [creationModal, setCreationModal] = useState<"area" | "table" | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "plan">("plan");
-  const [layoutEdit, setLayoutEdit] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "plan">("list");
+  const [hallMode, setHallMode] = useState<HallMode>("service");
+  const [showDetails, setShowDetails] = useState(true);
+  const [selectedId, setSelectedId] = useState("");
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     listLocations()
@@ -68,6 +89,11 @@ export default function TablesView() {
       })
       .catch((cause) => setError(cause.message));
   }, [locationId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!creationModal) return;
@@ -178,6 +204,16 @@ export default function TablesView() {
     () => new Map(orders.map((order) => [order.tableId, order])),
     [orders],
   );
+  const selected = tables.find((table) => table.id === selectedId) ?? null;
+  const selectedOrder = selected ? orderByTable.get(selected.id) : undefined;
+  const grouped = areas
+    .map((area) => ({
+      area,
+      tables: visible.filter((table) => table.areaId === area.id),
+    }))
+    .filter((group) => group.tables.length > 0);
+  const layoutEdit = hallMode === "edit" && viewMode === "plan" && canManage(user);
+  const currentLocation = locations.find((location) => location.id === locationId);
 
   function openService(table: DiningTable) {
     const order = orderByTable.get(table.id);
@@ -187,7 +223,7 @@ export default function TablesView() {
 
   return (
     <>
-      <div className="toolbar tables-toolbar">
+      <div className="toolbar tables-toolbar halls-toolbar">
         <label>
           Local
           <select
@@ -196,6 +232,7 @@ export default function TablesView() {
               setLocationId(event.target.value);
               setAreaId("all");
               setStatusFilter("all");
+              setSelectedId("");
             }}
           >
             {locations.map((location) => (
@@ -203,183 +240,213 @@ export default function TablesView() {
             ))}
           </select>
         </label>
-        {canManage(user) && (
+        <p className="halls-user">{user.displayName}</p>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+
+      <div className="service-filters" role="group" aria-label="Salón">
+        <FilterChip
+          pressed={areaId === "all"}
+          label="Todos"
+          hint={occupancyLabel(tables)}
+          onClick={() => setAreaId("all")}
+        />
+        {areas.map((area) => {
+          const areaTables = tables.filter((table) => table.areaId === area.id);
+          return (
+            <FilterChip
+              key={area.id}
+              pressed={areaId === area.id}
+              label={area.name}
+              hint={occupancyLabel(areaTables)}
+              onClick={() => setAreaId(area.id)}
+            />
+          );
+        })}
+      </div>
+
+      <div className="halls-controls">
+        <div className="view-toggle" role="group" aria-label="Vista de mesas">
+          <button type="button" className="service-chip" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}>
+            Lista
+          </button>
+          <button type="button" className="service-chip" aria-pressed={viewMode === "plan"} onClick={() => setViewMode("plan")}>
+            Plano
+          </button>
+        </div>
+        <label className="halls-details">
+          <input
+            type="checkbox"
+            checked={showDetails}
+            onChange={(event) => setShowDetails(event.target.checked)}
+          />
+          Mostrar detalles del pedido
+        </label>
+        <div className="view-toggle" role="group" aria-label="Modo">
+          <button type="button" className="service-chip" aria-pressed={hallMode === "service"} onClick={() => setHallMode("service")}>
+            Servicio
+          </button>
+          {canManage(user) && (
+            <button type="button" className="service-chip" aria-pressed={hallMode === "edit"} onClick={() => setHallMode("edit")}>
+              Edición
+            </button>
+          )}
+        </div>
+        {hallMode === "edit" && canManage(user) && (
           <div className="table-creation-actions">
-            <button
-              type="button"
-              className="toolbar-action-button"
-              onClick={() => openCreationModal("area")}
-              disabled={!locationId}
-            >
+            <button type="button" className="toolbar-action-button" onClick={() => openCreationModal("area")} disabled={!locationId}>
               <AreaIcon />
               <span>Nuevo salón</span>
             </button>
-            <button
-              type="button"
-              className="toolbar-action-button"
-              onClick={() => openCreationModal("table")}
-              disabled={!locationId}
-            >
+            <button type="button" className="toolbar-action-button" onClick={() => openCreationModal("table")} disabled={!locationId}>
               <TableIcon />
               <span>Nueva mesa</span>
             </button>
           </div>
         )}
-      </div>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="view-toggle" role="group" aria-label="Vista de mesas">
-        <button type="button" className="service-chip" aria-pressed={viewMode === "plan"} onClick={() => setViewMode("plan")}>
-          Plano
-        </button>
-        <button type="button" className="service-chip" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}>
-          Lista
-        </button>
-        {canManage(user) && viewMode === "plan" && (
-          <button
-            type="button"
-            className="service-chip"
-            aria-pressed={layoutEdit}
-            onClick={() => setLayoutEdit((current) => !current)}
-          >
-            {layoutEdit ? "Listo" : "Mover mesas"}
-          </button>
+        {layoutEdit && (
+          <p className="halls-hint">Arrastra las mesas para guardar el plano.</p>
         )}
       </div>
-      <div className="service-filters" role="group" aria-label="Salón">
-        <FilterChip
-          pressed={areaId === "all"}
-          label="Todos"
-          count={tables.length}
-          onClick={() => setAreaId("all")}
-        />
-        {areas.map((area) => (
-          <FilterChip
-            key={area.id}
-            pressed={areaId === area.id}
-            label={area.name}
-            count={tables.filter((table) => table.areaId === area.id).length}
-            onClick={() => setAreaId(area.id)}
-          />
-        ))}
-      </div>
+
       <div className="service-filters" role="group" aria-label="Estado de mesa">
         <FilterChip pressed={statusFilter === "all"} label="Todas" count={counts.all} onClick={() => setStatusFilter("all")} />
         <FilterChip pressed={statusFilter === "FREE"} label="Libres" count={counts.FREE} tone="ok" onClick={() => setStatusFilter("FREE")} />
         <FilterChip pressed={statusFilter === "OCCUPIED"} label="Ocupadas" count={counts.OCCUPIED} tone="warn" onClick={() => setStatusFilter("OCCUPIED")} />
-        <FilterChip pressed={statusFilter === "WAITING_PAYMENT"} label="Cuenta solicitada" count={counts.WAITING_PAYMENT} tone="bill" onClick={() => setStatusFilter("WAITING_PAYMENT")} />
-        <FilterChip pressed={statusFilter === "OUT_OF_SERVICE"} label="Fuera de servicio" count={counts.OUT_OF_SERVICE} onClick={() => setStatusFilter("OUT_OF_SERVICE")} />
+        <FilterChip pressed={statusFilter === "WAITING_PAYMENT"} label="Cuentas solicitadas" count={counts.WAITING_PAYMENT} tone="bill" onClick={() => setStatusFilter("WAITING_PAYMENT")} />
         <FilterChip pressed={statusFilter === "RESERVED"} label="Reservadas" count={counts.RESERVED} tone="reserve" onClick={() => setStatusFilter("RESERVED")} />
+        <FilterChip pressed={statusFilter === "OUT_OF_SERVICE"} label="Desactivadas" count={counts.OUT_OF_SERVICE} onClick={() => setStatusFilter("OUT_OF_SERVICE")} />
       </div>
-      {viewMode === "plan" && (
-        <FloorPlan
-          areas={areas.filter((area) => areaId === "all" || area.id === areaId)}
-          tables={visible}
-          orders={orderByTable}
-          layoutEdit={layoutEdit && canManage(user)}
-          onOpen={openService}
-          onMove={savePosition}
-          onPreview={(tableId, posX, posY) => {
-            setTables((current) => current.map((item) => (
-              item.id === tableId ? { ...item, posX, posY } : item
-            )));
-          }}
-        />
-      )}
-      {viewMode === "list" && (
-      <section className="entity-grid" aria-label="Mesas">
-        {visible.map((table) => {
-          const order = orderByTable.get(table.id);
-          return (
-            <article className={`table-card status-${table.status.toLowerCase()}`} key={table.id}>
-              <div className="card-heading">
-                <div>
-                  <small>{table.areaName} · {table.code}</small>
-                  <h2>{table.name}</h2>
-                </div>
-                <span className={`service-pill status-${table.status.toLowerCase()}`}>
-                  {statusLabels[table.status]}
-                </span>
+
+      <div className="halls-board">
+        <div className="halls-main">
+          {viewMode === "plan" && (
+            <FloorPlan
+              areas={areas.filter((area) => areaId === "all" || area.id === areaId)}
+              tables={visible}
+              orders={orderByTable}
+              selectedId={selectedId}
+              showDetails={showDetails}
+              layoutEdit={layoutEdit}
+              onSelect={setSelectedId}
+              onMove={savePosition}
+              onPreview={(tableId, posX, posY) => {
+                setTables((current) => current.map((item) => (
+                  item.id === tableId ? { ...item, posX, posY } : item
+                )));
+              }}
+            />
+          )}
+          {viewMode === "list" && grouped.map((group) => (
+            <section className="halls-group" key={group.area.id} aria-label={group.area.name}>
+              <h3>{group.area.name} <span>{group.tables.length} {group.tables.length === 1 ? "mesa" : "mesas"}</span></h3>
+              <div className="entity-grid halls-grid">
+                {group.tables.map((table) => (
+                  <TableCard
+                    key={table.id}
+                    table={table}
+                    order={orderByTable.get(table.id)}
+                    selected={table.id === selectedId}
+                    showDetails={showDetails}
+                    now={now}
+                    onSelect={() => setSelectedId(table.id)}
+                    onOpen={() => openService(table)}
+                  />
+                ))}
               </div>
-              <p className="table-card-meta">
-                {table.capacity} {table.capacity === 1 ? "plaza" : "plazas"}
-                {order ? ` · Pedido #${order.orderNumber} · ${order.guestCount} comensales` : ""}
+            </section>
+          ))}
+          {locationId && tables.length === 0 && (
+            <p className="empty-state">Todavía no hay mesas configuradas para este local.</p>
+          )}
+          {tables.length > 0 && visible.length === 0 && (
+            <p className="empty-state">Ninguna mesa coincide con estos filtros.</p>
+          )}
+        </div>
+
+        <aside className="halls-inspector" aria-live="polite">
+          {!selected && (
+            <div className="halls-inspector-empty">
+              <TableIcon />
+              <h2>Elige una mesa</h2>
+              <p>
+                {currentLocation
+                  ? `Toca una mesa de ${currentLocation.name} para ver su estado y abrir su comanda.`
+                  : "Toca una mesa para ver su estado y abrir su comanda."}
               </p>
+            </div>
+          )}
+          {selected && (
+            <>
+              <span className={`service-pill status-${selected.status.toLowerCase()}`}>
+                {statusLabels[selected.status]}
+              </span>
+              <h2>{selected.name}</h2>
+              <p className="table-card-meta">
+                {selected.areaName} · {selected.capacity} {selected.capacity === 1 ? "plaza" : "plazas"}
+              </p>
+              {selectedOrder && showDetails && (
+                <dl className="halls-inspector-stats">
+                  <div>
+                    <dt>Comensales</dt>
+                    <dd>{selectedOrder.guestCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Tiempo</dt>
+                    <dd>{formatElapsed(selectedOrder.openedAt, now)}</dd>
+                  </div>
+                  <div>
+                    <dt>Pedido</dt>
+                    <dd>#{selectedOrder.orderNumber}</dd>
+                  </div>
+                  <div>
+                    <dt>Total</dt>
+                    <dd>{money.format(selectedOrder.total)}</dd>
+                  </div>
+                </dl>
+              )}
               <div className="table-card-actions">
-                {canOperate(user) && (table.status === "FREE" || table.status === "RESERVED") && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={busy}
-                    onClick={() => openService(table)}
-                  >
+                {canOperate(user) && (selected.status === "FREE" || selected.status === "RESERVED") && (
+                  <button type="button" className="primary-button" disabled={busy} onClick={() => openService(selected)}>
                     Abrir pedido
                   </button>
                 )}
-                {canOperate(user) && table.status === "FREE" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => updateStatus(table, "RESERVED")}
-                  >
-                    Reservar
-                  </button>
-                )}
-                {canOperate(user) && table.status === "RESERVED" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => updateStatus(table, "FREE")}
-                  >
-                    Quitar reserva
-                  </button>
-                )}
-                {canOperate(user) && table.status === "OCCUPIED" && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={busy || !order}
-                    onClick={() => openService(table)}
-                  >
+                {canOperate(user) && selected.status === "OCCUPIED" && (
+                  <button type="button" className="primary-button" disabled={busy || !selectedOrder} onClick={() => openService(selected)}>
                     Abrir pedido
                   </button>
                 )}
-                {canOperate(user) && table.status === "WAITING_PAYMENT" && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={busy || !order}
-                    onClick={() => openService(table)}
-                  >
+                {canOperate(user) && selected.status === "WAITING_PAYMENT" && (
+                  <button type="button" className="primary-button" disabled={busy || !selectedOrder} onClick={() => openService(selected)}>
                     Ver cuenta
                   </button>
                 )}
-                {canManage(user) && (table.status === "FREE" || table.status === "OUT_OF_SERVICE") && (
+                {canOperate(user) && selected.status === "FREE" && (
+                  <button type="button" className="secondary-button" disabled={busy} onClick={() => updateStatus(selected, "RESERVED")}>
+                    Reservar
+                  </button>
+                )}
+                {canOperate(user) && selected.status === "RESERVED" && (
+                  <button type="button" className="secondary-button" disabled={busy} onClick={() => updateStatus(selected, "FREE")}>
+                    Quitar reserva
+                  </button>
+                )}
+                {hallMode === "edit" && canManage(user) && (selected.status === "FREE" || selected.status === "OUT_OF_SERVICE") && (
                   <button
                     type="button"
                     className="secondary-button"
                     disabled={busy}
-                    onClick={() => updateStatus(
-                      table,
-                      table.status === "FREE" ? "OUT_OF_SERVICE" : "FREE",
-                    )}
+                    onClick={() => updateStatus(selected, selected.status === "FREE" ? "OUT_OF_SERVICE" : "FREE")}
                   >
-                    {table.status === "FREE" ? "Desactivar" : "Reactivar"}
+                    {selected.status === "FREE" ? "Desactivar" : "Reactivar"}
                   </button>
                 )}
               </div>
-            </article>
-          );
-        })}
-      </section>
-      )}
-      {locationId && tables.length === 0 && (
-        <p className="empty-state">Todavía no hay mesas configuradas para este local.</p>
-      )}
-      {tables.length > 0 && visible.length === 0 && (
-        <p className="empty-state">Ninguna mesa coincide con estos filtros.</p>
-      )}
+            </>
+          )}
+        </aside>
+      </div>
+
       {creationModal && (
         <div
           className="creation-modal-backdrop"
@@ -419,21 +486,10 @@ export default function TablesView() {
               <form className="creation-modal-form" onSubmit={addArea}>
                 <label>
                   Nombre del salón
-                  <input
-                    name="name"
-                    maxLength={100}
-                    placeholder="Ej. Terraza"
-                    autoFocus
-                    required
-                  />
+                  <input name="name" maxLength={100} placeholder="Ej. Terraza" autoFocus required />
                 </label>
                 <div className="creation-modal-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setCreationModal(null)}
-                    disabled={busy}
-                  >
+                  <button type="button" className="secondary-button" onClick={() => setCreationModal(null)} disabled={busy}>
                     Cancelar
                   </button>
                   <button className="primary-button" disabled={busy || !locationId}>
@@ -459,14 +515,7 @@ export default function TablesView() {
                   </label>
                   <label>
                     Capacidad
-                    <input
-                      name="capacity"
-                      type="number"
-                      min={1}
-                      max={100}
-                      defaultValue={2}
-                      required
-                    />
+                    <input name="capacity" type="number" min={1} max={100} defaultValue={2} required />
                   </label>
                 </div>
                 <label>
@@ -479,12 +528,7 @@ export default function TablesView() {
                   </p>
                 )}
                 <div className="creation-modal-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setCreationModal(null)}
-                    disabled={busy}
-                  >
+                  <button type="button" className="secondary-button" onClick={() => setCreationModal(null)} disabled={busy}>
                     Cancelar
                   </button>
                   <button className="primary-button" disabled={busy || areas.length === 0}>
@@ -500,20 +544,66 @@ export default function TablesView() {
   );
 }
 
+function TableCard({
+  table,
+  order,
+  selected,
+  showDetails,
+  now,
+  onSelect,
+  onOpen,
+}: {
+  table: DiningTable;
+  order?: RestaurantOrder;
+  selected: boolean;
+  showDetails: boolean;
+  now: number;
+  onSelect: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <article
+      className={`table-card status-${table.status.toLowerCase()} ${selected ? "selected" : ""}`}
+      onClick={onSelect}
+      onDoubleClick={onOpen}
+    >
+      <div className="card-heading">
+        <span className={`service-pill status-${table.status.toLowerCase()}`}>
+          {statusLabels[table.status]}
+        </span>
+      </div>
+      <h2>{table.name}</h2>
+      <p className="table-card-meta">
+        {table.capacity} {table.capacity === 1 ? "plaza" : "plazas"}
+      </p>
+      {order && showDetails && (
+        <p className="table-card-order">
+          <span>{order.guestCount} · {formatElapsed(order.openedAt, now)}</span>
+          <strong>{money.format(order.total)}</strong>
+        </p>
+      )}
+    </article>
+  );
+}
+
 function FloorPlan({
   areas,
   tables,
   orders,
+  selectedId,
+  showDetails,
   layoutEdit,
-  onOpen,
+  onSelect,
   onMove,
   onPreview,
 }: {
   areas: DiningArea[];
   tables: DiningTable[];
   orders: Map<string, RestaurantOrder>;
+  selectedId: string;
+  showDetails: boolean;
   layoutEdit: boolean;
-  onOpen: (table: DiningTable) => void;
+  onSelect: (tableId: string) => void;
   onMove: (table: DiningTable, posX: number, posY: number) => void;
   onPreview: (tableId: string, posX: number, posY: number) => void;
 }) {
@@ -539,7 +629,7 @@ function FloorPlan({
                 <button
                   type="button"
                   key={table.id}
-                  className={`floor-table status-${table.status.toLowerCase()} ${drag.current?.id === table.id ? "dragging" : ""}`}
+                  className={`floor-table status-${table.status.toLowerCase()} ${selectedId === table.id ? "selected" : ""} ${drag.current?.id === table.id ? "dragging" : ""}`}
                   style={{ left: `${Number(table.posX)}%`, top: `${Number(table.posY)}%` }}
                   onPointerDown={(event) => {
                     if (!layoutEdit) return;
@@ -565,12 +655,12 @@ function FloorPlan({
                       return;
                     }
                     drag.current = null;
-                    if (!layoutEdit) onOpen(table);
+                    onSelect(table.id);
                   }}
                 >
                   <strong>{table.name}</strong>
                   <small>{statusLabels[table.status]}</small>
-                  {order && <small>{money.format(order.total)}</small>}
+                  {order && showDetails && <small>{money.format(order.total)}</small>}
                 </button>
               );
             })}
@@ -584,12 +674,14 @@ function FloorPlan({
 function FilterChip({
   label,
   count,
+  hint,
   pressed,
   tone,
   onClick,
 }: {
   label: string;
-  count: number;
+  count?: number;
+  hint?: string;
   pressed: boolean;
   tone?: "ok" | "warn" | "bill" | "reserve";
   onClick: () => void;
@@ -597,12 +689,13 @@ function FilterChip({
   return (
     <button
       type="button"
-      className={`service-chip ${tone ? `tone-${tone}` : ""}`}
+      className={`service-chip ${hint ? "service-chip-stack" : ""} ${tone ? `tone-${tone}` : ""}`}
       aria-pressed={pressed}
       onClick={onClick}
     >
       <span>{label}</span>
-      <strong>{count}</strong>
+      {hint && <small>{hint}</small>}
+      {count !== undefined && <strong>{count}</strong>}
     </button>
   );
 }
