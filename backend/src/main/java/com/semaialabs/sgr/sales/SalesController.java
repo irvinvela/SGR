@@ -37,11 +37,14 @@ public class SalesController {
     public DailySalesResponse dailySales(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam UUID locationId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
         LocationSnapshot location = requireLocation(organizationId, locationId);
         ZoneId zoneId = ZoneId.of(location.timezone());
+        if (businessDate == null) {
+            businessDate = latestBusinessDate(organizationId, locationId, zoneId);
+        }
         Instant from = businessDate.atStartOfDay(zoneId).toInstant();
         Instant to = businessDate.plusDays(1).atStartOfDay(zoneId).toInstant();
 
@@ -140,6 +143,26 @@ public class SalesController {
                 tenderTotals.cardPayments().subtract(tenderTotals.cardRefunds()),
                 sales
         );
+    }
+
+    private LocalDate latestBusinessDate(UUID organizationId, UUID locationId, ZoneId zoneId) {
+        List<Timestamp> rows = jdbc.sql("""
+                SELECT MAX(closed_at) AS closed_at
+                FROM restaurant_orders
+                WHERE organization_id = :organizationId
+                  AND location_id = :locationId
+                  AND status IN ('PAID', 'PARTIALLY_REFUNDED', 'REFUNDED')
+                  AND closed_at IS NOT NULL
+                """)
+                .param("organizationId", organizationId)
+                .param("locationId", locationId)
+                .query((rs, rowNum) -> rs.getTimestamp("closed_at"))
+                .list();
+        Timestamp latest = rows.stream().filter(value -> value != null).findFirst().orElse(null);
+        if (latest == null) {
+            return LocalDate.now(zoneId);
+        }
+        return latest.toInstant().atZone(zoneId).toLocalDate();
     }
 
     private DailyTenderTotals dailyTenderTotals(

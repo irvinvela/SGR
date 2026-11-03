@@ -38,7 +38,6 @@ export default function AccountView() {
   return (
     <section className="account-panel">
       <div>
-        <p className="eyebrow">{user.role}</p>
         <h2>{user.displayName}</h2>
         <p>{user.email}</p>
       </div>

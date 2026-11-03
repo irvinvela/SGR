@@ -32,6 +32,21 @@ public final class CashShiftPolicy {
         return new Reconciliation(expected, countedCash.subtract(expected));
     }
 
+    public static Reconciliation reconcileCard(
+            BigDecimal cardSales,
+            BigDecimal cardRefunds,
+            BigDecimal countedCard
+    ) {
+        requireNonNegative(cardSales, "Las ventas con tarjeta no pueden ser negativas");
+        requireNonNegative(cardRefunds, "Los reembolsos con tarjeta no pueden ser negativos");
+        requireNonNegative(countedCard, "La tarjeta contada no puede ser negativa");
+        BigDecimal expected = cardSales.subtract(cardRefunds);
+        if (expected.signum() < 0) {
+            throw new IllegalArgumentException("Los reembolsos superan las ventas con tarjeta");
+        }
+        return new Reconciliation(expected, countedCard.subtract(expected));
+    }
+
     private static void requireNonNegative(BigDecimal value, String message) {
         if (value == null || value.signum() < 0) {
             throw new IllegalArgumentException(message);

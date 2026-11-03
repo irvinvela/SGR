@@ -1,6 +1,7 @@
 package com.semaialabs.sgr.order;
 
 import com.semaialabs.sgr.audit.AuditService;
+import com.semaialabs.sgr.dining.TableOccupancy;
 import com.semaialabs.sgr.tenant.TenantContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -11,8 +12,14 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -37,10 +44,12 @@ public class OrderController {
 
     private final JdbcClient jdbc;
     private final AuditService audit;
+    private final TableOccupancy occupancy;
 
-    public OrderController(JdbcClient jdbc, AuditService audit) {
+    public OrderController(JdbcClient jdbc, AuditService audit, TableOccupancy occupancy) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.occupancy = occupancy;
     }
 
     @GetMapping
@@ -49,23 +58,24 @@ public class OrderController {
             @RequestParam UUID locationId
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
-        return jdbc.sql("""
+        occupancy.reconcileLocation(organizationId, locationId);
+        List<OrderResponse> orders = jdbc.sql("""
                 SELECT
                     o.id, o.order_number, o.location_id, o.table_id,
                     t.name AS table_name, a.name AS area_name,
-                    o.status, o.guest_count, o.notes, o.opened_at, o.version
+                    o.status, o.guest_count, o.notes, o.opened_at, o.version, o.order_type
                 FROM restaurant_orders o
                 INNER JOIN dining_tables t ON t.id = o.table_id
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE o.organization_id = :organizationId
                   AND o.location_id = :locationId
                   AND o.closed_at IS NULL
+                  AND o.status IN ('OPEN', 'WAITING_PAYMENT')
                 ORDER BY o.opened_at
                 """)
                 .param("organizationId", organizationId)
                 .param("locationId", locationId)
-                .query((rs, rowNum) -> toOrderResponse(
-                        organizationId,
+                .query((rs, rowNum) -> assembleOrder(
                         rs.getObject("id", UUID.class),
                         rs.getLong("order_number"),
                         rs.getObject("location_id", UUID.class),
@@ -76,9 +86,57 @@ public class OrderController {
                         rs.getInt("guest_count"),
                         rs.getString("notes"),
                         rs.getTimestamp("opened_at").toInstant().toString(),
-                        rs.getLong("version")
+                        rs.getLong("version"),
+                        rs.getString("order_type"),
+                        List.of()
                 ))
                 .list();
+        if (orders.isEmpty()) {
+            return orders;
+        }
+        Map<UUID, List<OrderItemResponse>> itemsByOrder = new HashMap<>();
+        jdbc.sql("""
+                SELECT
+                    i.order_id, i.id, i.product_id, i.product_name, i.sku, i.quantity,
+                    i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at,
+                    i.voided_at, i.void_reason, i.version,
+                    COALESCE(p.prep_station, N'KITCHEN') AS prep_station
+                FROM order_items i
+                LEFT JOIN products p ON p.id = i.product_id
+                INNER JOIN restaurant_orders o ON o.id = i.order_id
+                WHERE i.organization_id = :organizationId
+                  AND o.organization_id = :organizationId
+                  AND o.location_id = :locationId
+                  AND o.closed_at IS NULL
+                  AND o.status IN ('OPEN', 'WAITING_PAYMENT')
+                  AND i.voided_at IS NULL
+                ORDER BY i.created_at, i.id
+                """)
+                .param("organizationId", organizationId)
+                .param("locationId", locationId)
+                .query((rs, rowNum) -> {
+                    UUID orderId = rs.getObject("order_id", UUID.class);
+                    itemsByOrder.computeIfAbsent(orderId, ignored -> new ArrayList<>()).add(mapItem(rs, rowNum));
+                    return orderId;
+                })
+                .list();
+        return orders.stream()
+                .map(order -> assembleOrder(
+                        order.id(),
+                        order.orderNumber(),
+                        order.locationId(),
+                        order.tableId(),
+                        order.tableName(),
+                        order.areaName(),
+                        order.status(),
+                        order.guestCount(),
+                        order.notes(),
+                        order.openedAt(),
+                        order.version(),
+                        order.orderType(),
+                        itemsByOrder.getOrDefault(order.id(), List.of())
+                ))
+                .toList();
     }
 
     @PostMapping
@@ -90,7 +148,7 @@ public class OrderController {
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
         TableSnapshot table = jdbc.sql("""
-                SELECT t.name, a.name AS area_name
+                SELECT t.name, a.name AS area_name, t.status
                 FROM dining_tables t
                 INNER JOIN dining_areas a ON a.id = t.area_id
                 WHERE t.id = :tableId
@@ -104,34 +162,44 @@ public class OrderController {
                 .param("locationId", request.locationId())
                 .query((rs, rowNum) -> new TableSnapshot(
                         rs.getString("name"),
-                        rs.getString("area_name")
+                        rs.getString("area_name"),
+                        rs.getString("status")
                 ))
                 .optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Mesa no encontrada"));
-
-        int claimed = jdbc.sql("""
-                UPDATE dining_tables
-                SET status = 'OCCUPIED', version = version + 1, updated_at = SYSUTCDATETIME()
-                WHERE id = :tableId
-                  AND organization_id = :organizationId
-                  AND status IN ('FREE', 'RESERVED')
-                  AND active = 1
-                """)
-                .param("tableId", request.tableId())
-                .param("organizationId", organizationId)
-                .update();
-        if (claimed == 0) {
+        if ("OUT_OF_SERVICE".equals(table.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La mesa está fuera de servicio");
+        }
+        if (occupancy.countActivePedidos(organizationId, request.tableId()) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "La mesa ya no está libre");
+        }
+
+        UUID existingEmpty = jdbc.sql("""
+                SELECT TOP 1 id
+                FROM restaurant_orders
+                WHERE organization_id = :organizationId
+                  AND table_id = :tableId
+                  AND closed_at IS NULL
+                  AND status = 'OPEN'
+                ORDER BY opened_at
+                """)
+                .param("organizationId", organizationId)
+                .param("tableId", request.tableId())
+                .query(UUID.class)
+                .optional()
+                .orElse(null);
+        if (existingEmpty != null) {
+            return findOrder(organizationId, existingEmpty);
         }
 
         UUID id = UUID.randomUUID();
         jdbc.sql("""
                 INSERT INTO restaurant_orders (
                     id, organization_id, location_id, table_id,
-                    guest_count, notes, opened_by_user_id
+                    guest_count, notes, opened_by_user_id, order_type
                 ) VALUES (
                     :id, :organizationId, :locationId, :tableId,
-                    :guestCount, :notes, :userId
+                    :guestCount, :notes, :userId, :orderType
                 )
                 """)
                 .param("id", id)
@@ -141,10 +209,104 @@ public class OrderController {
                 .param("guestCount", request.guestCount())
                 .param("notes", clean(request.notes()))
                 .param("userId", TenantContext.userId(jwt))
+                .param("orderType", normalizeOrderType(request.orderType()))
                 .update();
 
         audit.record(jwt, "ORDER_OPENED", "restaurant_order", id, Map.of("tableId", request.tableId()));
         return findOrder(organizationId, id);
+    }
+
+    @PatchMapping("/guests")
+    @PreAuthorize(ORDER_ROLES)
+    @Transactional
+    public OrderResponse updateGuests(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody UpdateGuestsRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        requireOpenOrder(organizationId, request.orderId());
+        Long version = jdbc.sql("""
+                SELECT version
+                FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .query(Long.class)
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (version != request.expectedVersion()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "El pedido cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        jdbc.sql("""
+                UPDATE restaurant_orders
+                SET guest_count = :guestCount,
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("guestCount", request.guestCount())
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .update();
+        audit.record(
+                jwt,
+                "ORDER_GUESTS_UPDATED",
+                "restaurant_order",
+                request.orderId(),
+                Map.of("guestCount", request.guestCount())
+        );
+        return findOrder(organizationId, request.orderId());
+    }
+
+    @PatchMapping("/channel")
+    @PreAuthorize(ORDER_ROLES)
+    @Transactional
+    public OrderResponse updateChannel(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody UpdateChannelRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        requireOpenOrder(organizationId, request.orderId());
+        Long version = jdbc.sql("""
+                SELECT version
+                FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .query(Long.class)
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (version != request.expectedVersion()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "El pedido cambió en otro dispositivo; actualice la vista"
+            );
+        }
+        String orderType = normalizeOrderType(request.orderType());
+        jdbc.sql("""
+                UPDATE restaurant_orders
+                SET order_type = :orderType,
+                    version = version + 1,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderType", orderType)
+                .param("orderId", request.orderId())
+                .param("organizationId", organizationId)
+                .update();
+        audit.record(
+                jwt,
+                "ORDER_CHANNEL_UPDATED",
+                "restaurant_order",
+                request.orderId(),
+                Map.of("orderType", orderType)
+        );
+        return findOrder(organizationId, request.orderId());
     }
 
     @PostMapping("/items")
@@ -180,6 +342,14 @@ public class OrderController {
                         "El producto no está disponible"
                 ));
 
+        AddonResolution addons = resolveAddons(
+                organizationId,
+                locationId,
+                request.productId(),
+                request.addonOptionIds()
+        );
+        String kitchenNote = combineNotes(addons.note(), request.kitchenNote());
+
         UUID id = UUID.randomUUID();
         jdbc.sql("""
                 INSERT INTO order_items (
@@ -199,11 +369,13 @@ public class OrderController {
                 .param("productName", product.name())
                 .param("sku", product.sku())
                 .param("quantity", request.quantity())
-                .param("unitPrice", product.price())
+                .param("unitPrice", product.price().add(addons.extra()))
                 .param("taxRate", product.taxRate())
-                .param("kitchenNote", clean(request.kitchenNote()))
+                .param("kitchenNote", kitchenNote)
                 .param("userId", TenantContext.userId(jwt))
                 .update();
+        saveItemAddons(organizationId, id, addons.chosen());
+        occupancy.syncTable(organizationId, tableIdForOrder(organizationId, request.orderId()));
 
         audit.record(jwt, "ORDER_ITEM_ADDED", "order_item", id, Map.of("orderId", request.orderId()));
         return findItem(organizationId, id);
@@ -310,6 +482,7 @@ public class OrderController {
                 .param("organizationId", organizationId)
                 .param("expectedVersion", request.expectedVersion())
                 .update();
+        occupancy.syncTable(organizationId, tableIdForOrder(organizationId, item.orderId()));
         audit.record(
                 jwt,
                 item.sentToKitchen() ? "ORDER_ITEM_VOIDED_AFTER_SEND" : "ORDER_ITEM_REMOVED",
@@ -331,6 +504,20 @@ public class OrderController {
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody SendKitchenRequest request
     ) {
+        return sendRound(jwt, request, "KITCHEN");
+    }
+
+    @PostMapping("/send-bar")
+    @PreAuthorize(ORDER_ROLES)
+    @Transactional
+    public KitchenRoundResponse sendToBar(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody SendKitchenRequest request
+    ) {
+        return sendRound(jwt, request, "BAR");
+    }
+
+    private KitchenRoundResponse sendRound(Jwt jwt, SendKitchenRequest request, String station) {
         UUID organizationId = TenantContext.organizationId(jwt);
         Optional<UUID> existing = jdbc.sql("""
                 SELECT id FROM kitchen_rounds WITH (UPDLOCK, HOLDLOCK)
@@ -345,21 +532,28 @@ public class OrderController {
         }
 
         UUID locationId = requireOpenOrder(organizationId, request.orderId());
+        boolean bar = "BAR".equals(station);
         List<UUID> itemIds = jdbc.sql("""
-                SELECT id
-                FROM order_items WITH (UPDLOCK, HOLDLOCK)
-                WHERE organization_id = :organizationId
-                  AND order_id = :orderId
-                  AND voided_at IS NULL
-                  AND sent_to_kitchen_at IS NULL
-                ORDER BY created_at, id
+                SELECT i.id
+                FROM order_items i WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN products p ON p.id = i.product_id
+                WHERE i.organization_id = :organizationId
+                  AND i.order_id = :orderId
+                  AND i.voided_at IS NULL
+                  AND i.sent_to_kitchen_at IS NULL
+                  AND p.prep_station = :station
+                ORDER BY i.created_at, i.id
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", request.orderId())
+                .param("station", station)
                 .query(UUID.class)
                 .list();
         if (itemIds.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "No hay productos nuevos para enviar");
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    bar ? "No hay bebidas para enviar a barra" : "No hay productos de cocina para enviar"
+            );
         }
 
         int roundNumber = jdbc.sql("""
@@ -374,10 +568,10 @@ public class OrderController {
         jdbc.sql("""
                 INSERT INTO kitchen_rounds (
                     id, organization_id, location_id, order_id,
-                    round_number, idempotency_key, sent_by_user_id
+                    round_number, station, idempotency_key, sent_by_user_id
                 ) VALUES (
                     :id, :organizationId, :locationId, :orderId,
-                    :roundNumber, :idempotencyKey, :userId
+                    :roundNumber, :station, :idempotencyKey, :userId
                 )
                 """)
                 .param("id", roundId)
@@ -385,6 +579,7 @@ public class OrderController {
                 .param("locationId", locationId)
                 .param("orderId", request.orderId())
                 .param("roundNumber", roundNumber)
+                .param("station", station)
                 .param("idempotencyKey", request.idempotencyKey())
                 .param("userId", TenantContext.userId(jwt))
                 .update();
@@ -407,8 +602,11 @@ public class OrderController {
         }
 
         audit.record(
-                jwt, "KITCHEN_ROUND_SENT", "kitchen_round", roundId,
-                Map.of("orderId", request.orderId(), "itemCount", itemIds.size())
+                jwt,
+                bar ? "BAR_ROUND_SENT" : "KITCHEN_ROUND_SENT",
+                "kitchen_round",
+                roundId,
+                Map.of("orderId", request.orderId(), "itemCount", itemIds.size(), "station", station)
         );
         return findRound(organizationId, roundId);
     }
@@ -545,6 +743,18 @@ public class OrderController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Partida no encontrada"));
     }
 
+    private UUID tableIdForOrder(UUID organizationId, UUID orderId) {
+        return jdbc.sql("""
+                SELECT table_id
+                FROM restaurant_orders
+                WHERE id = :orderId AND organization_id = :organizationId
+                """)
+                .param("orderId", orderId)
+                .param("organizationId", organizationId)
+                .query(UUID.class)
+                .single();
+    }
+
     private UUID requireOpenOrder(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
                 SELECT location_id FROM restaurant_orders WITH (UPDLOCK, HOLDLOCK)
@@ -565,7 +775,7 @@ public class OrderController {
                 SELECT
                     o.id, o.order_number, o.location_id, o.table_id,
                     t.name AS table_name, a.name AS area_name,
-                    o.status, o.guest_count, o.notes, o.opened_at, o.version
+                    o.status, o.guest_count, o.notes, o.opened_at, o.version, o.order_type
                 FROM restaurant_orders o
                 INNER JOIN dining_tables t ON t.id = o.table_id
                 INNER JOIN dining_areas a ON a.id = t.area_id
@@ -585,7 +795,8 @@ public class OrderController {
                         rs.getInt("guest_count"),
                         rs.getString("notes"),
                         rs.getTimestamp("opened_at").toInstant().toString(),
-                        rs.getLong("version")
+                        rs.getLong("version"),
+                        rs.getString("order_type")
                 ))
                 .single();
     }
@@ -602,74 +813,102 @@ public class OrderController {
             int guestCount,
             String notes,
             String openedAt,
-            long version
+            long version,
+            String orderType
     ) {
-        List<OrderItemResponse> items = listItems(organizationId, id);
+        return assembleOrder(
+                id, orderNumber, locationId, tableId, tableName, areaName,
+                status, guestCount, notes, openedAt, version, orderType, listItems(organizationId, id)
+        );
+    }
+
+    private OrderResponse assembleOrder(
+            UUID id,
+            long orderNumber,
+            UUID locationId,
+            UUID tableId,
+            String tableName,
+            String areaName,
+            String status,
+            int guestCount,
+            String notes,
+            String openedAt,
+            long version,
+            String orderType,
+            List<OrderItemResponse> items
+    ) {
         BigDecimal total = items.stream()
                 .map(item -> item.unitPrice().multiply(item.quantity()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return new OrderResponse(
                 id, orderNumber, locationId, tableId, tableName, areaName,
-                status, guestCount, notes, openedAt, version, total, items
+                status, guestCount, notes, openedAt, version, total, items, orderType
         );
+    }
+
+    private String normalizeOrderType(String value) {
+        if (value == null || value.isBlank() || "DINE_IN".equals(value)) {
+            return "DINE_IN";
+        }
+        if ("TAKEAWAY".equals(value) || "DELIVERY".equals(value)) {
+            return value;
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tipo de pedido no válido");
     }
 
     private List<OrderItemResponse> listItems(UUID organizationId, UUID orderId) {
         return jdbc.sql("""
                 SELECT
-                    id, product_id, product_name, sku, quantity,
-                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at,
-                    voided_at, void_reason, version
-                FROM order_items
-                WHERE organization_id = :organizationId
-                  AND order_id = :orderId
-                  AND voided_at IS NULL
-                ORDER BY created_at, id
+                    i.id, i.product_id, i.product_name, i.sku, i.quantity,
+                    i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at,
+                    i.voided_at, i.void_reason, i.version,
+                    COALESCE(p.prep_station, N'KITCHEN') AS prep_station
+                FROM order_items i
+                LEFT JOIN products p ON p.id = i.product_id
+                WHERE i.organization_id = :organizationId
+                  AND i.order_id = :orderId
+                  AND i.voided_at IS NULL
+                ORDER BY i.created_at, i.id
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", orderId)
-                .query((rs, rowNum) -> new OrderItemResponse(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("product_id", UUID.class),
-                        rs.getString("product_name"),
-                        rs.getString("sku"),
-                        rs.getBigDecimal("quantity"),
-                        rs.getBigDecimal("unit_price"),
-                        rs.getBigDecimal("tax_rate"),
-                        rs.getString("kitchen_note"),
-                        rs.getTimestamp("sent_to_kitchen_at") != null,
-                        rs.getTimestamp("voided_at") != null,
-                        rs.getString("void_reason"),
-                        rs.getLong("version")
-                ))
+                .query(this::mapItem)
                 .list();
+    }
+
+    private OrderItemResponse mapItem(ResultSet rs, int rowNum) throws SQLException {
+        String station = rs.getString("prep_station");
+        return new OrderItemResponse(
+                rs.getObject("id", UUID.class),
+                rs.getObject("product_id", UUID.class),
+                rs.getString("product_name"),
+                rs.getString("sku"),
+                rs.getBigDecimal("quantity"),
+                rs.getBigDecimal("unit_price"),
+                rs.getBigDecimal("tax_rate"),
+                rs.getString("kitchen_note"),
+                rs.getTimestamp("sent_to_kitchen_at") != null,
+                rs.getTimestamp("voided_at") != null,
+                rs.getString("void_reason"),
+                station == null || station.isBlank() ? "KITCHEN" : station,
+                rs.getLong("version")
+        );
     }
 
     private OrderItemResponse findItem(UUID organizationId, UUID itemId) {
         return jdbc.sql("""
                 SELECT
-                    id, product_id, product_name, sku, quantity,
-                    unit_price, tax_rate, kitchen_note, sent_to_kitchen_at,
-                    voided_at, void_reason, version
-                FROM order_items
-                WHERE id = :id AND organization_id = :organizationId
+                    i.id, i.product_id, i.product_name, i.sku, i.quantity,
+                    i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at,
+                    i.voided_at, i.void_reason, i.version,
+                    COALESCE(p.prep_station, N'KITCHEN') AS prep_station
+                FROM order_items i
+                LEFT JOIN products p ON p.id = i.product_id
+                WHERE i.id = :id AND i.organization_id = :organizationId
                 """)
                 .param("id", itemId)
                 .param("organizationId", organizationId)
-                .query((rs, rowNum) -> new OrderItemResponse(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("product_id", UUID.class),
-                        rs.getString("product_name"),
-                        rs.getString("sku"),
-                        rs.getBigDecimal("quantity"),
-                        rs.getBigDecimal("unit_price"),
-                        rs.getBigDecimal("tax_rate"),
-                        rs.getString("kitchen_note"),
-                        rs.getTimestamp("sent_to_kitchen_at") != null,
-                        rs.getTimestamp("voided_at") != null,
-                        rs.getString("void_reason"),
-                        rs.getLong("version")
-                ))
+                .query(this::mapItem)
                 .single();
     }
 
@@ -706,36 +945,171 @@ public class OrderController {
                 SELECT
                     i.id, i.product_id, i.product_name, i.sku, i.quantity,
                     i.unit_price, i.tax_rate, i.kitchen_note, i.sent_to_kitchen_at,
-                    i.voided_at, i.void_reason, i.version
+                    i.voided_at, i.void_reason, i.version,
+                    COALESCE(p.prep_station, N'KITCHEN') AS prep_station
                 FROM kitchen_round_items ri
                 INNER JOIN order_items i ON i.id = ri.order_item_id
+                LEFT JOIN products p ON p.id = i.product_id
                 WHERE ri.round_id = :roundId AND i.organization_id = :organizationId
                 ORDER BY i.created_at, i.id
                 """)
                 .param("roundId", roundId)
                 .param("organizationId", organizationId)
-                .query((rs, rowNum) -> new OrderItemResponse(
+                .query(this::mapItem)
+                .list();
+    }
+
+    private AddonResolution resolveAddons(
+            UUID organizationId,
+            UUID locationId,
+            UUID productId,
+            List<UUID> optionIds
+    ) {
+        List<AddonGroupRow> groups = jdbc.sql("""
+                SELECT g.id, g.name, g.required, g.min_select, g.max_select
+                FROM addon_groups g
+                INNER JOIN product_addon_groups pg ON pg.group_id = g.id
+                WHERE g.organization_id = :organizationId
+                  AND g.location_id = :locationId
+                  AND g.active = 1
+                  AND pg.product_id = :productId
+                ORDER BY g.sort_order, g.name
+                """)
+                .param("organizationId", organizationId)
+                .param("locationId", locationId)
+                .param("productId", productId)
+                .query((rs, rowNum) -> new AddonGroupRow(
                         rs.getObject("id", UUID.class),
-                        rs.getObject("product_id", UUID.class),
-                        rs.getString("product_name"),
-                        rs.getString("sku"),
-                        rs.getBigDecimal("quantity"),
-                        rs.getBigDecimal("unit_price"),
-                        rs.getBigDecimal("tax_rate"),
-                        rs.getString("kitchen_note"),
-                        true,
-                        rs.getTimestamp("voided_at") != null,
-                        rs.getString("void_reason"),
-                        rs.getLong("version")
+                        rs.getString("name"),
+                        rs.getBoolean("required"),
+                        rs.getInt("min_select"),
+                        rs.getInt("max_select")
                 ))
                 .list();
+        List<UUID> requested = new ArrayList<>();
+        for (UUID optionId : Objects.requireNonNullElse(optionIds, List.<UUID>of())) {
+            if (!requested.contains(optionId)) {
+                requested.add(optionId);
+            }
+        }
+        if (groups.isEmpty()) {
+            if (!requested.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Este producto no admite adicionales");
+            }
+            return AddonResolution.none();
+        }
+        List<UUID> groupIds = groups.stream().map(AddonGroupRow::id).toList();
+        Map<UUID, AddonOptionRow> options = new LinkedHashMap<>();
+        jdbc.sql("""
+                SELECT id, group_id, name, price
+                FROM addon_options
+                WHERE organization_id = :organizationId
+                  AND group_id IN (:groupIds)
+                  AND active = 1
+                  AND available = 1
+                """)
+                .param("organizationId", organizationId)
+                .param("groupIds", groupIds)
+                .query((rs, rowNum) -> {
+                    AddonOptionRow option = new AddonOptionRow(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("group_id", UUID.class),
+                            rs.getString("name"),
+                            rs.getBigDecimal("price")
+                    );
+                    options.put(option.id(), option);
+                    return option.id();
+                })
+                .list();
+        Map<UUID, List<AddonOptionRow>> chosenByGroup = new HashMap<>();
+        List<ChosenAddon> chosen = new ArrayList<>();
+        BigDecimal extra = BigDecimal.ZERO;
+        for (UUID optionId : requested) {
+            AddonOptionRow option = options.get(optionId);
+            if (option == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hay adicionales no disponibles");
+            }
+            AddonGroupRow group = groups.stream()
+                    .filter(item -> item.id().equals(option.groupId()))
+                    .findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Hay adicionales que no corresponden al producto"
+                    ));
+            chosenByGroup.computeIfAbsent(group.id(), ignored -> new ArrayList<>()).add(option);
+            chosen.add(new ChosenAddon(group.id(), option.id(), group.name(), option.name(), option.price()));
+            extra = extra.add(option.price());
+        }
+        List<String> noteParts = new ArrayList<>();
+        for (AddonGroupRow group : groups) {
+            List<AddonOptionRow> selected = chosenByGroup.getOrDefault(group.id(), List.of());
+            int min = group.required() ? Math.max(1, group.minSelect()) : Math.max(0, group.minSelect());
+            if (selected.size() < min) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Faltan opciones en " + group.name()
+                );
+            }
+            if (selected.size() > group.maxSelect()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Demasiadas opciones en " + group.name()
+                );
+            }
+            if (!selected.isEmpty()) {
+                noteParts.add(group.name() + ": " + String.join(
+                        ", ",
+                        selected.stream().map(AddonOptionRow::name).toList()
+                ));
+            }
+        }
+        return new AddonResolution(extra, String.join(" · ", noteParts), chosen);
+    }
+
+    private void saveItemAddons(UUID organizationId, UUID itemId, List<ChosenAddon> chosen) {
+        for (ChosenAddon addon : chosen) {
+            jdbc.sql("""
+                    INSERT INTO order_item_addons (
+                        id, organization_id, order_item_id, group_id, option_id,
+                        group_name, option_name, price
+                    ) VALUES (
+                        :id, :organizationId, :itemId, :groupId, :optionId,
+                        :groupName, :optionName, :price
+                    )
+                    """)
+                    .param("id", UUID.randomUUID())
+                    .param("organizationId", organizationId)
+                    .param("itemId", itemId)
+                    .param("groupId", addon.groupId())
+                    .param("optionId", addon.optionId())
+                    .param("groupName", addon.groupName())
+                    .param("optionName", addon.optionName())
+                    .param("price", addon.price())
+                    .update();
+        }
+    }
+
+    private String combineNotes(String addonNote, String kitchenNote) {
+        String extras = clean(addonNote);
+        String note = clean(kitchenNote);
+        if (extras == null) {
+            return note;
+        }
+        if (note == null) {
+            return extras;
+        }
+        String combined = extras + "\n" + note;
+        if (combined.length() > 500) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La nota con adicionales es demasiado larga");
+        }
+        return combined;
     }
 
     private String clean(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private record TableSnapshot(String name, String areaName) {
+    private record TableSnapshot(String name, String areaName, String status) {
     }
 
     private record CancelOrderLock(UUID tableId, String status) {
@@ -753,11 +1127,41 @@ public class OrderController {
     private record ProductSnapshot(String name, String sku, BigDecimal price, BigDecimal taxRate) {
     }
 
+    private record AddonGroupRow(UUID id, String name, boolean required, int minSelect, int maxSelect) {
+    }
+
+    private record AddonOptionRow(UUID id, UUID groupId, String name, BigDecimal price) {
+    }
+
+    private record ChosenAddon(UUID groupId, UUID optionId, String groupName, String optionName, BigDecimal price) {
+    }
+
+    private record AddonResolution(BigDecimal extra, String note, List<ChosenAddon> chosen) {
+        static AddonResolution none() {
+            return new AddonResolution(BigDecimal.ZERO, "", List.of());
+        }
+    }
+
     public record OpenOrderRequest(
             @NotNull UUID locationId,
             @NotNull UUID tableId,
             @Min(1) @Max(999) int guestCount,
-            @Size(max = 500) String notes
+            @Size(max = 500) String notes,
+            @Size(max = 24) String orderType
+    ) {
+    }
+
+    public record UpdateGuestsRequest(
+            @NotNull UUID orderId,
+            @Min(1) @Max(999) int guestCount,
+            @Min(0) long expectedVersion
+    ) {
+    }
+
+    public record UpdateChannelRequest(
+            @NotNull UUID orderId,
+            @NotBlank @Size(max = 24) String orderType,
+            @Min(0) long expectedVersion
     ) {
     }
 
@@ -765,7 +1169,8 @@ public class OrderController {
             @NotNull UUID orderId,
             @NotNull UUID productId,
             @NotNull @DecimalMin("0.001") @Digits(integer = 7, fraction = 3) BigDecimal quantity,
-            @Size(max = 500) String kitchenNote
+            @Size(max = 500) String kitchenNote,
+            List<UUID> addonOptionIds
     ) {
     }
 
@@ -808,6 +1213,7 @@ public class OrderController {
             boolean sentToKitchen,
             boolean voided,
             String voidReason,
+            String prepStation,
             long version
     ) {
     }
@@ -825,7 +1231,8 @@ public class OrderController {
             String openedAt,
             long version,
             BigDecimal total,
-            List<OrderItemResponse> items
+            List<OrderItemResponse> items,
+            String orderType
     ) {
     }
 

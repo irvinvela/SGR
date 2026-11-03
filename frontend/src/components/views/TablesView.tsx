@@ -1,22 +1,22 @@
 "use client";
 
-import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAppNavigation } from "@/components/AppShell";
 import {
   CurrentUser,
   DiningArea,
   DiningTable,
-  Location,
   RestaurantOrder,
   changeTableStatus,
   createArea,
   createTable,
   listAreas,
-  listLocations,
   listOrders,
   listTables,
   moveTable,
 } from "@/lib/api";
+import { orderForTable, withLiveTableStatus } from "@/lib/tableStatus";
+import { SystemSelect } from "@/components/SystemSelect";
 
 const statusLabels: Record<DiningTable["status"], string> = {
   FREE: "Libre",
@@ -49,9 +49,7 @@ function formatElapsed(openedAt: string, now: number) {
 }
 
 export default function TablesView() {
-  const { user, navigate } = useAppNavigation();
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locationId, setLocationId] = useState("");
+  const { user, navigate, locations, locationId } = useAppNavigation();
   const [areas, setAreas] = useState<DiningArea[]>([]);
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [orders, setOrders] = useState<RestaurantOrder[]>([]);
@@ -67,13 +65,10 @@ export default function TablesView() {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    listLocations()
-      .then((result) => {
-        setLocations(result);
-        if (result[0]) setLocationId(result[0].id);
-      })
-      .catch((cause) => setError(cause.message));
-  }, []);
+    setAreaId("all");
+    setStatusFilter("all");
+    setSelectedId("");
+  }, [locationId]);
 
   useEffect(() => {
     if (!locationId) return;
@@ -187,9 +182,21 @@ export default function TablesView() {
     }
   }
 
+  const orderByTable = useMemo(() => {
+    const map = new Map<string, (typeof orders)[number]>();
+    for (const table of tables) {
+      const order = orderForTable(orders, table.id);
+      if (order) map.set(table.id, order);
+    }
+    return map;
+  }, [orders, tables]);
+  const liveTables = useMemo(
+    () => tables.map((table) => withLiveTableStatus(table, orderByTable.get(table.id))),
+    [orderByTable, tables],
+  );
   const scoped = useMemo(
-    () => tables.filter((table) => areaId === "all" || table.areaId === areaId),
-    [areaId, tables],
+    () => liveTables.filter((table) => areaId === "all" || table.areaId === areaId),
+    [areaId, liveTables],
   );
   const counts = useMemo(() => {
     const next = { all: 0, FREE: 0, OCCUPIED: 0, WAITING_PAYMENT: 0, OUT_OF_SERVICE: 0, RESERVED: 0 };
@@ -200,11 +207,7 @@ export default function TablesView() {
     return next;
   }, [scoped]);
   const visible = scoped.filter((table) => statusFilter === "all" || table.status === statusFilter);
-  const orderByTable = useMemo(
-    () => new Map(orders.map((order) => [order.tableId, order])),
-    [orders],
-  );
-  const selected = tables.find((table) => table.id === selectedId) ?? null;
+  const selected = liveTables.find((table) => table.id === selectedId) ?? null;
   const selectedOrder = selected ? orderByTable.get(selected.id) : undefined;
   const grouped = areas
     .map((area) => ({
@@ -217,36 +220,19 @@ export default function TablesView() {
 
   function openService(table: DiningTable) {
     const order = orderByTable.get(table.id);
-    if (order) navigate("pos", { orderId: order.id });
+    if (order) navigate("pos", { orderId: order.id, tableId: table.id });
     else if (table.status === "FREE" || table.status === "RESERVED") navigate("pos", { tableId: table.id });
   }
 
   return (
     <>
-      <div className="toolbar tables-toolbar halls-toolbar">
-        <label>
-          Local
-          <select
-            value={locationId}
-            onChange={(event) => {
-              setLocationId(event.target.value);
-              setAreaId("all");
-              setStatusFilter("all");
-              setSelectedId("");
-            }}
-          >
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>{location.name}</option>
-            ))}
-          </select>
-        </label>
-        <p className="halls-user">{user.displayName}</p>
-      </div>
       {error && <p className="error" role="alert">{error}</p>}
 
+      <div className="halls-view">
       <div className="service-filters" role="group" aria-label="Salón">
         <FilterChip
           pressed={areaId === "all"}
+          icon={<HallsIcon />}
           label="Todos"
           hint={occupancyLabel(tables)}
           onClick={() => setAreaId("all")}
@@ -257,6 +243,7 @@ export default function TablesView() {
             <FilterChip
               key={area.id}
               pressed={areaId === area.id}
+              icon={<AreaIcon />}
               label={area.name}
               hint={occupancyLabel(areaTables)}
               onClick={() => setAreaId(area.id)}
@@ -268,9 +255,11 @@ export default function TablesView() {
       <div className="halls-controls">
         <div className="view-toggle" role="group" aria-label="Vista de mesas">
           <button type="button" className="service-chip" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}>
+            <ListIcon />
             Lista
           </button>
           <button type="button" className="service-chip" aria-pressed={viewMode === "plan"} onClick={() => setViewMode("plan")}>
+            <PlanIcon />
             Plano
           </button>
         </div>
@@ -284,10 +273,12 @@ export default function TablesView() {
         </label>
         <div className="view-toggle" role="group" aria-label="Modo">
           <button type="button" className="service-chip" aria-pressed={hallMode === "service"} onClick={() => setHallMode("service")}>
+            <ServiceIcon />
             Servicio
           </button>
           {canManage(user) && (
             <button type="button" className="service-chip" aria-pressed={hallMode === "edit"} onClick={() => setHallMode("edit")}>
+              <EditIcon />
               Edición
             </button>
           )}
@@ -310,12 +301,12 @@ export default function TablesView() {
       </div>
 
       <div className="service-filters" role="group" aria-label="Estado de mesa">
-        <FilterChip pressed={statusFilter === "all"} label="Todas" count={counts.all} onClick={() => setStatusFilter("all")} />
-        <FilterChip pressed={statusFilter === "FREE"} label="Libres" count={counts.FREE} tone="ok" onClick={() => setStatusFilter("FREE")} />
-        <FilterChip pressed={statusFilter === "OCCUPIED"} label="Ocupadas" count={counts.OCCUPIED} tone="warn" onClick={() => setStatusFilter("OCCUPIED")} />
-        <FilterChip pressed={statusFilter === "WAITING_PAYMENT"} label="Cuentas solicitadas" count={counts.WAITING_PAYMENT} tone="bill" onClick={() => setStatusFilter("WAITING_PAYMENT")} />
-        <FilterChip pressed={statusFilter === "RESERVED"} label="Reservadas" count={counts.RESERVED} tone="reserve" onClick={() => setStatusFilter("RESERVED")} />
-        <FilterChip pressed={statusFilter === "OUT_OF_SERVICE"} label="Desactivadas" count={counts.OUT_OF_SERVICE} onClick={() => setStatusFilter("OUT_OF_SERVICE")} />
+        <FilterChip pressed={statusFilter === "all"} icon={<HallsIcon />} label="Todas" count={counts.all} onClick={() => setStatusFilter("all")} />
+        <FilterChip pressed={statusFilter === "FREE"} icon={<FreeIcon />} label="Libres" count={counts.FREE} tone="ok" onClick={() => setStatusFilter("FREE")} />
+        <FilterChip pressed={statusFilter === "OCCUPIED"} icon={<OccupiedIcon />} label="Ocupadas" count={counts.OCCUPIED} tone="warn" onClick={() => setStatusFilter("OCCUPIED")} />
+        <FilterChip pressed={statusFilter === "WAITING_PAYMENT"} icon={<BillIcon />} label="Cuentas solicitadas" count={counts.WAITING_PAYMENT} tone="bill" onClick={() => setStatusFilter("WAITING_PAYMENT")} />
+        <FilterChip pressed={statusFilter === "RESERVED"} icon={<ReservedIcon />} label="Reservadas" count={counts.RESERVED} tone="reserve" onClick={() => setStatusFilter("RESERVED")} />
+        <FilterChip pressed={statusFilter === "OUT_OF_SERVICE"} icon={<OffIcon />} label="Desactivadas" count={counts.OUT_OF_SERVICE} onClick={() => setStatusFilter("OUT_OF_SERVICE")} />
       </div>
 
       <div className="halls-board">
@@ -339,7 +330,7 @@ export default function TablesView() {
           )}
           {viewMode === "list" && grouped.map((group) => (
             <section className="halls-group" key={group.area.id} aria-label={group.area.name}>
-              <h3>{group.area.name} <span>{group.tables.length} {group.tables.length === 1 ? "mesa" : "mesas"}</span></h3>
+              <h3><AreaIcon /> {group.area.name} <span>{group.tables.length} {group.tables.length === 1 ? "mesa" : "mesas"}</span></h3>
               <div className="entity-grid halls-grid">
                 {group.tables.map((table) => (
                   <TableCard
@@ -379,6 +370,7 @@ export default function TablesView() {
           {selected && (
             <>
               <span className={`service-pill status-${selected.status.toLowerCase()}`}>
+                <StatusGlyph status={selected.status} />
                 {statusLabels[selected.status]}
               </span>
               <h2>{selected.name}</h2>
@@ -408,26 +400,37 @@ export default function TablesView() {
               <div className="table-card-actions">
                 {canOperate(user) && (selected.status === "FREE" || selected.status === "RESERVED") && (
                   <button type="button" className="primary-button" disabled={busy} onClick={() => openService(selected)}>
+                    <ServiceIcon />
                     Abrir pedido
                   </button>
                 )}
                 {canOperate(user) && selected.status === "OCCUPIED" && (
                   <button type="button" className="primary-button" disabled={busy || !selectedOrder} onClick={() => openService(selected)}>
+                    <ServiceIcon />
                     Abrir pedido
                   </button>
                 )}
                 {canOperate(user) && selected.status === "WAITING_PAYMENT" && (
-                  <button type="button" className="primary-button" disabled={busy || !selectedOrder} onClick={() => openService(selected)}>
-                    Ver cuenta
-                  </button>
+                  <>
+                    <button type="button" className="primary-button" disabled={busy || !selectedOrder} onClick={() => selectedOrder && navigate("checkout", { orderId: selectedOrder.id, tableId: selected.id })}>
+                      <BillIcon />
+                      Ir a caja
+                    </button>
+                    <button type="button" className="secondary-button" disabled={busy || !selectedOrder} onClick={() => openService(selected)}>
+                      <ServiceIcon />
+                      Ver en POS
+                    </button>
+                  </>
                 )}
                 {canOperate(user) && selected.status === "FREE" && (
                   <button type="button" className="secondary-button" disabled={busy} onClick={() => updateStatus(selected, "RESERVED")}>
+                    <ReservedIcon />
                     Reservar
                   </button>
                 )}
                 {canOperate(user) && selected.status === "RESERVED" && (
                   <button type="button" className="secondary-button" disabled={busy} onClick={() => updateStatus(selected, "FREE")}>
+                    <FreeIcon />
                     Quitar reserva
                   </button>
                 )}
@@ -465,7 +468,7 @@ export default function TablesView() {
               <div className="creation-modal-title">
                 <span>{creationModal === "area" ? <AreaIcon /> : <TableIcon />}</span>
                 <div>
-                  <p>Salones y mesas</p>
+                  <p>Salones y Mesas</p>
                   <h2 id="creation-modal-title">
                     {creationModal === "area" ? "Nuevo salón" : "Nueva mesa"}
                   </h2>
@@ -501,12 +504,20 @@ export default function TablesView() {
               <form className="creation-modal-form" onSubmit={addTable}>
                 <label>
                   Salón
-                  <select name="areaId" defaultValue="" autoFocus required>
-                    <option value="">Seleccionar salón</option>
-                    {areas.map((area) => (
-                      <option key={area.id} value={area.id}>{area.name}</option>
-                    ))}
-                  </select>
+                  <SystemSelect
+                    className="fill"
+                    name="areaId"
+                    defaultValue=""
+                    autoFocus
+                    required
+                    options={[
+                      { value: "", label: "Seleccionar salón" },
+                      ...areas.map((area) => ({
+                        value: area.id,
+                        label: area.name,
+                      })),
+                    ]}
+                  />
                 </label>
                 <div className="split-fields">
                   <label>
@@ -540,6 +551,7 @@ export default function TablesView() {
           </section>
         </div>
       )}
+      </div>
     </>
   );
 }
@@ -569,6 +581,7 @@ function TableCard({
     >
       <div className="card-heading">
         <span className={`service-pill status-${table.status.toLowerCase()}`}>
+          <StatusGlyph status={table.status} />
           {statusLabels[table.status]}
         </span>
       </div>
@@ -578,7 +591,7 @@ function TableCard({
       </p>
       {order && showDetails && (
         <p className="table-card-order">
-          <span>{order.guestCount} · {formatElapsed(order.openedAt, now)}</span>
+          <span><GuestIcon /> {order.guestCount} · {formatElapsed(order.openedAt, now)}</span>
           <strong>{money.format(order.total)}</strong>
         </p>
       )}
@@ -672,6 +685,7 @@ function FloorPlan({
 }
 
 function FilterChip({
+  icon,
   label,
   count,
   hint,
@@ -679,6 +693,7 @@ function FilterChip({
   tone,
   onClick,
 }: {
+  icon?: ReactNode;
   label: string;
   count?: number;
   hint?: string;
@@ -693,7 +708,7 @@ function FilterChip({
       aria-pressed={pressed}
       onClick={onClick}
     >
-      <span>{label}</span>
+      <span>{icon}{label}</span>
       {hint && <small>{hint}</small>}
       {count !== undefined && <strong>{count}</strong>}
     </button>
@@ -724,4 +739,113 @@ function TableIcon() {
       <path d="M7 15v5M17 15v5M8.5 7V4M15.5 7V4" />
     </svg>
   );
+}
+
+function HallsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 10h16v10H4Z" />
+      <path d="M8 10V7l4-3 4 3v3" />
+      <path d="M10 20v-5h4v5" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7h12M8 12h12M8 17h12" />
+      <circle cx="4.5" cy="7" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="17" r="1" />
+    </svg>
+  );
+}
+
+function PlanIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M3.5 10h17M10 4.5v15" />
+    </svg>
+  );
+}
+
+function ServiceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 11h14v2.5a7 7 0 0 1-14 0Z" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20h4.2L19 9.2 14.8 5 4 15.8Z" />
+      <path d="M12.8 7l4.2 4.2" />
+    </svg>
+  );
+}
+
+function FreeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.5" />
+    </svg>
+  );
+}
+
+function OccupiedIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="8" r="3" />
+      <path d="M6 18a6 6 0 0 1 12 0" />
+    </svg>
+  );
+}
+
+function BillIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="6" y="3.5" width="12" height="17" rx="1.5" />
+      <path d="M9 8h6M9 12h6M9 16h3.5" />
+    </svg>
+  );
+}
+
+function ReservedIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="10" width="14" height="9" rx="1.5" />
+      <path d="M8 10V8a4 4 0 0 1 8 0v2" />
+    </svg>
+  );
+}
+
+function OffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.5" />
+      <path d="M8 8l8 8" />
+    </svg>
+  );
+}
+
+function GuestIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="8" r="3" />
+      <path d="M6 19a6 6 0 0 1 12 0" />
+    </svg>
+  );
+}
+
+function StatusGlyph({ status }: { status: DiningTable["status"] }) {
+  if (status === "FREE") return <FreeIcon />;
+  if (status === "OCCUPIED") return <OccupiedIcon />;
+  if (status === "WAITING_PAYMENT") return <BillIcon />;
+  if (status === "RESERVED") return <ReservedIcon />;
+  return <OffIcon />;
 }

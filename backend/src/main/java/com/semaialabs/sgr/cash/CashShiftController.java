@@ -1,6 +1,10 @@
 package com.semaialabs.sgr.cash;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.semaialabs.sgr.audit.AuditService;
+import com.semaialabs.sgr.config.SecretObfuscator;
+import com.semaialabs.sgr.dining.TableOccupancy;
 import com.semaialabs.sgr.tenant.TenantContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -12,6 +16,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,6 +27,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,10 +43,61 @@ import org.springframework.web.server.ResponseStatusException;
 public class CashShiftController {
     private final JdbcClient jdbc;
     private final AuditService audit;
+    private final PasswordEncoder passwordEncoder;
+    private final TableOccupancy occupancy;
 
-    public CashShiftController(JdbcClient jdbc, AuditService audit) {
+    public CashShiftController(
+            JdbcClient jdbc,
+            AuditService audit,
+            PasswordEncoder passwordEncoder,
+            TableOccupancy occupancy
+    ) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.passwordEncoder = passwordEncoder;
+        this.occupancy = occupancy;
+    }
+
+    @GetMapping("/owner-pin")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
+    public OwnerPinStatusResponse pinStatus(@AuthenticationPrincipal Jwt jwt) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        PinState pin = loadPin(organizationId);
+        boolean locked = pin.lockedUntil() != null && pin.lockedUntil().toInstant().isAfter(Instant.now());
+        return new OwnerPinStatusResponse(pin.hash() != null && !pin.hash().isBlank(), locked);
+    }
+
+    @PostMapping("/owner-pin")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
+    @Transactional
+    public OwnerPinStatusResponse setPin(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody SetOwnerPinRequest request
+    ) {
+        UUID organizationId = TenantContext.organizationId(jwt);
+        PinState pin = loadPin(organizationId);
+        if (pin.hash() != null && !pin.hash().isBlank()) {
+            verifyOwnerPin(organizationId, request.currentPin(), false);
+        }
+        String next = decodePin(request.pin());
+        try {
+            OwnerPinPolicy.validateFormat(next);
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
+        }
+        jdbc.sql("""
+                UPDATE organizations
+                SET owner_pin_hash = :hash,
+                    owner_pin_failed_attempts = 0,
+                    owner_pin_locked_until = NULL,
+                    updated_at = SYSUTCDATETIME()
+                WHERE id = :organizationId
+                """)
+                .param("hash", passwordEncoder.encode(next))
+                .param("organizationId", organizationId)
+                .update();
+        audit.record(jwt, "OWNER_PIN_CHANGED", "organization", organizationId, Map.of());
+        return new OwnerPinStatusResponse(true, false);
     }
 
     @GetMapping("/current")
@@ -111,6 +169,7 @@ public class CashShiftController {
             return shift;
         }
 
+        verifyOwnerPin(organizationId, request.ownerPin(), true);
         lockLocation(organizationId, request.locationId());
         Optional<UUID> active = jdbc.sql("""
                 SELECT id
@@ -175,6 +234,7 @@ public class CashShiftController {
         if (!"OPEN".equals(shift.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "El turno de caja está cerrado");
         }
+        String reason = normalizedReason(request);
         if ("PAID_OUT".equals(request.type())) {
             ShiftTotals totals = calculateTotals(organizationId, request.cashShiftId());
             BigDecimal availableCash = shift.openingAmount()
@@ -205,7 +265,7 @@ public class CashShiftController {
                 .param("shiftId", request.cashShiftId())
                 .param("type", request.type())
                 .param("amount", request.amount())
-                .param("reason", request.reason().trim())
+                .param("reason", reason)
                 .param("idempotencyKey", request.idempotencyKey())
                 .param("userId", TenantContext.userId(jwt))
                 .update();
@@ -246,12 +306,27 @@ public class CashShiftController {
             );
         }
 
+        occupancy.reconcileLocation(organizationId, shift.locationId());
+        verifyOwnerPin(organizationId, request.ownerPin(), true);
         int activeOrders = jdbc.sql("""
                 SELECT COUNT(*)
-                FROM restaurant_orders
-                WHERE organization_id = :organizationId
-                  AND location_id = :locationId
-                  AND closed_at IS NULL
+                FROM restaurant_orders o
+                WHERE o.organization_id = :organizationId
+                  AND o.location_id = :locationId
+                  AND o.closed_at IS NULL
+                  AND (
+                      o.status = 'WAITING_PAYMENT'
+                      OR (
+                          o.status = 'OPEN'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM order_items i
+                              WHERE i.order_id = o.id
+                                AND i.organization_id = o.organization_id
+                                AND i.voided_at IS NULL
+                          )
+                      )
+                  )
                 """)
                 .param("organizationId", organizationId)
                 .param("locationId", shift.locationId())
@@ -260,20 +335,27 @@ public class CashShiftController {
         if (activeOrders > 0) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "No se puede cerrar caja mientras existan pedidos abiertos"
+                    activeOrders == 1
+                            ? "Hay 1 pedido abierto. Cóbralo o anúlalo antes de cerrar caja."
+                            : "Hay " + activeOrders + " pedidos abiertos. Cóbralos o anúlalos antes de cerrar caja."
             );
         }
-
         ShiftTotals totals = calculateTotals(organizationId, request.cashShiftId());
-        CashShiftPolicy.Reconciliation reconciliation;
+        CashShiftPolicy.Reconciliation cash;
+        CashShiftPolicy.Reconciliation card;
         try {
-            reconciliation = CashShiftPolicy.reconcile(
+            cash = CashShiftPolicy.reconcile(
                     shift.openingAmount(),
                     totals.cashSales(),
                     totals.cashRefunds(),
                     totals.paidIn(),
                     totals.paidOut(),
                     request.countedCash()
+            );
+            card = CashShiftPolicy.reconcileCard(
+                    totals.cardSales(),
+                    totals.cardRefunds(),
+                    request.countedCard() == null ? totals.cardSales().subtract(totals.cardRefunds()) : request.countedCard()
             );
         } catch (IllegalArgumentException error) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
@@ -285,6 +367,9 @@ public class CashShiftController {
                     closing_counted_cash = :countedCash,
                     expected_cash = :expectedCash,
                     cash_difference = :difference,
+                    closing_counted_card = :countedCard,
+                    expected_card = :expectedCard,
+                    card_difference = :cardDifference,
                     cash_sales_total = :cashSales,
                     card_sales_total = :cardSales,
                     cash_refunds_total = :cashRefunds,
@@ -301,8 +386,11 @@ public class CashShiftController {
                   AND version = :expectedVersion
                 """)
                 .param("countedCash", request.countedCash())
-                .param("expectedCash", reconciliation.expectedCash())
-                .param("difference", reconciliation.difference())
+                .param("expectedCash", cash.expectedCash())
+                .param("difference", cash.difference())
+                .param("countedCard", request.countedCard() == null ? card.expectedCash() : request.countedCard())
+                .param("expectedCard", card.expectedCash())
+                .param("cardDifference", card.difference())
                 .param("cashSales", totals.cashSales())
                 .param("cardSales", totals.cardSales())
                 .param("cashRefunds", totals.cashRefunds())
@@ -321,9 +409,9 @@ public class CashShiftController {
                 "cash_shift",
                 request.cashShiftId(),
                 Map.of(
-                        "expectedCash", reconciliation.expectedCash(),
+                        "expectedCash", cash.expectedCash(),
                         "countedCash", request.countedCash(),
-                        "difference", reconciliation.difference()
+                        "difference", cash.difference()
                 )
         );
         return findShift(organizationId, request.cashShiftId());
@@ -334,6 +422,7 @@ public class CashShiftController {
                 SELECT s.id, s.location_id, s.status, s.opening_amount,
                        s.opened_at, opener.display_name AS opened_by,
                        s.closing_counted_cash, s.expected_cash, s.cash_difference,
+                       s.closing_counted_card, s.expected_card, s.card_difference,
                        s.cash_sales_total, s.card_sales_total,
                        COALESCE(s.cash_refunds_total, 0) AS cash_refunds_total,
                        COALESCE(s.card_refunds_total, 0) AS card_refunds_total,
@@ -357,6 +446,9 @@ public class CashShiftController {
                         rs.getBigDecimal("closing_counted_cash"),
                         rs.getBigDecimal("expected_cash"),
                         rs.getBigDecimal("cash_difference"),
+                        rs.getBigDecimal("closing_counted_card"),
+                        rs.getBigDecimal("expected_card"),
+                        rs.getBigDecimal("card_difference"),
                         rs.getBigDecimal("cash_sales_total"),
                         rs.getBigDecimal("card_sales_total"),
                         rs.getBigDecimal("cash_refunds_total"),
@@ -388,6 +480,9 @@ public class CashShiftController {
                         .add(totals.paidIn())
                         .subtract(totals.paidOut())
                 : row.expectedCash();
+        BigDecimal expectedCard = "OPEN".equals(row.status())
+                ? totals.cardSales().subtract(totals.cardRefunds())
+                : row.expectedCard();
         return new CashShiftResponse(
                 row.id(),
                 row.locationId(),
@@ -404,6 +499,9 @@ public class CashShiftController {
                 expectedCash,
                 row.closingCountedCash(),
                 row.cashDifference(),
+                expectedCard,
+                row.closingCountedCard(),
+                row.cardDifference(),
                 row.closedBy(),
                 row.closedAt() == null ? null : row.closedAt().toInstant().toString(),
                 row.closingNote(),
@@ -582,11 +680,19 @@ public class CashShiftController {
         }
     }
 
+    private String normalizedReason(CreateMovementRequest request) {
+        String reason = request.reason() == null ? "" : request.reason().trim();
+        if ("PAID_OUT".equals(request.type()) && reason.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el motivo de la salida");
+        }
+        return reason;
+    }
+
     private void ensureSameMovement(MovementResponse existing, CreateMovementRequest request) {
         if (!existing.cashShiftId().equals(request.cashShiftId())
                 || !existing.type().equals(request.type())
                 || existing.amount().compareTo(request.amount()) != 0
-                || !Objects.equals(existing.reason(), request.reason().trim())) {
+                || !Objects.equals(existing.reason(), normalizedReason(request))) {
             throw idempotencyConflict();
         }
     }
@@ -596,6 +702,82 @@ public class CashShiftController {
                 HttpStatus.CONFLICT,
                 "La clave de idempotencia ya se usó con otros datos"
         );
+    }
+
+    private PinState loadPin(UUID organizationId) {
+        return jdbc.sql("""
+                SELECT owner_pin_hash, owner_pin_failed_attempts, owner_pin_locked_until
+                FROM organizations
+                WHERE id = :organizationId
+                """)
+                .param("organizationId", organizationId)
+                .query((rs, rowNum) -> new PinState(
+                        rs.getString("owner_pin_hash"),
+                        rs.getInt("owner_pin_failed_attempts"),
+                        rs.getTimestamp("owner_pin_locked_until")
+                ))
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Organización no encontrada"));
+    }
+
+    private void verifyOwnerPin(UUID organizationId, String encodedPin, boolean countFailures) {
+        PinState pin = loadPin(organizationId);
+        if (pin.hash() == null || pin.hash().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Configure el PIN del propietario antes de operar la caja");
+        }
+        Instant now = Instant.now();
+        if (pin.lockedUntil() != null && pin.lockedUntil().toInstant().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PIN bloqueado. Espere unos minutos e inténtelo de nuevo");
+        }
+        String candidate;
+        try {
+            candidate = decodePin(encodedPin);
+            OwnerPinPolicy.validateFormat(candidate);
+        } catch (IllegalArgumentException error) {
+            if (countFailures) {
+                registerPinFailure(organizationId, pin, now);
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PIN incorrecto", error);
+        }
+        if (!passwordEncoder.matches(candidate, pin.hash())) {
+            if (countFailures) {
+                registerPinFailure(organizationId, pin, now);
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PIN incorrecto");
+        }
+        jdbc.sql("""
+                UPDATE organizations
+                SET owner_pin_failed_attempts = 0,
+                    owner_pin_locked_until = NULL
+                WHERE id = :organizationId
+                """)
+                .param("organizationId", organizationId)
+                .update();
+    }
+
+    private void registerPinFailure(UUID organizationId, PinState pin, Instant now) {
+        int attempts = pin.failedAttempts() + 1;
+        Timestamp locked = attempts >= OwnerPinPolicy.MAX_ATTEMPTS
+                ? Timestamp.from(now.plus(OwnerPinPolicy.LOCK_MINUTES, ChronoUnit.MINUTES))
+                : null;
+        jdbc.sql("""
+                UPDATE organizations
+                SET owner_pin_failed_attempts = :attempts,
+                    owner_pin_locked_until = :lockedUntil
+                WHERE id = :organizationId
+                """)
+                .param("attempts", attempts)
+                .param("lockedUntil", locked)
+                .param("organizationId", organizationId)
+                .update();
+    }
+
+    private String decodePin(String value) {
+        try {
+            return SecretObfuscator.decodeCredential(value);
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PIN inválido", error);
+        }
     }
 
     private String clean(String value) {
@@ -630,6 +812,9 @@ public class CashShiftController {
             BigDecimal closingCountedCash,
             BigDecimal expectedCash,
             BigDecimal cashDifference,
+            BigDecimal closingCountedCard,
+            BigDecimal expectedCard,
+            BigDecimal cardDifference,
             BigDecimal cashSalesTotal,
             BigDecimal cardSalesTotal,
             BigDecimal cashRefundsTotal,
@@ -646,7 +831,8 @@ public class CashShiftController {
     public record OpenShiftRequest(
             @NotNull UUID locationId,
             @NotNull @DecimalMin("0") @Digits(integer = 15, fraction = 4) BigDecimal openingAmount,
-            @NotNull UUID idempotencyKey
+            @NotNull UUID idempotencyKey,
+            @NotBlank @Size(max = 200) @JsonProperty("k") @JsonAlias({"pin", "ownerPin"}) String ownerPin
     ) {
     }
 
@@ -654,7 +840,7 @@ public class CashShiftController {
             @NotNull UUID cashShiftId,
             @NotBlank @Pattern(regexp = "PAID_IN|PAID_OUT") String type,
             @NotNull @DecimalMin("0.0001") @Digits(integer = 15, fraction = 4) BigDecimal amount,
-            @NotBlank @Size(max = 240) String reason,
+            @Size(max = 240) String reason,
             @NotNull UUID idempotencyKey
     ) {
     }
@@ -662,9 +848,23 @@ public class CashShiftController {
     public record CloseShiftRequest(
             @NotNull UUID cashShiftId,
             @NotNull @DecimalMin("0") @Digits(integer = 15, fraction = 4) BigDecimal countedCash,
+            @DecimalMin("0") @Digits(integer = 15, fraction = 4) BigDecimal countedCard,
             @Size(max = 500) String closingNote,
-            @Min(0) long expectedVersion
+            @Min(0) long expectedVersion,
+            @NotBlank @Size(max = 200) @JsonProperty("k") @JsonAlias({"pin", "ownerPin"}) String ownerPin
     ) {
+    }
+
+    public record SetOwnerPinRequest(
+            @NotBlank @Size(max = 200) @JsonProperty("k") @JsonAlias({"pin", "n"}) String pin,
+            @Size(max = 200) @JsonAlias({"currentPin", "c"}) String currentPin
+    ) {
+    }
+
+    public record OwnerPinStatusResponse(boolean configured, boolean locked) {
+    }
+
+    private record PinState(String hash, int failedAttempts, Timestamp lockedUntil) {
     }
 
     public record CurrentShiftResponse(CashShiftResponse shift) {
@@ -697,6 +897,9 @@ public class CashShiftController {
             BigDecimal expectedCash,
             BigDecimal closingCountedCash,
             BigDecimal cashDifference,
+            BigDecimal expectedCard,
+            BigDecimal closingCountedCard,
+            BigDecimal cardDifference,
             String closedBy,
             String closedAt,
             String closingNote,

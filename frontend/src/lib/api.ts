@@ -43,6 +43,28 @@ export type MenuCategory = {
   sortOrder: number;
 };
 
+export type AddonOption = {
+  id: string;
+  groupId: string;
+  name: string;
+  price: number;
+  available: boolean;
+  sortOrder: number;
+};
+
+export type AddonGroup = {
+  id: string;
+  locationId: string;
+  name: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  version: number;
+  options: AddonOption[];
+  productIds: string[];
+};
+
 export type Product = {
   id: string;
   locationId: string;
@@ -54,8 +76,22 @@ export type Product = {
   price: number;
   taxRate: number;
   available: boolean;
+  prepStation: "KITCHEN" | "BAR";
   version: number;
 };
+
+export function productGoesToBar(product?: Pick<Product, "prepStation"> | null, fallbackName = "") {
+  if (product?.prepStation) return product.prepStation === "BAR";
+  return fallbackName.toLocaleLowerCase("es").includes("bebida");
+}
+
+export function itemGoesToBar(
+  item: Pick<OrderItem, "productName" | "prepStation">,
+  product?: Pick<Product, "prepStation"> | null,
+) {
+  if (item.prepStation) return item.prepStation === "BAR";
+  return productGoesToBar(product, item.productName);
+}
 
 export type OrderItem = {
   id: string;
@@ -69,8 +105,11 @@ export type OrderItem = {
   sentToKitchen: boolean;
   voided: boolean;
   voidReason?: string;
+  prepStation?: "KITCHEN" | "BAR";
   version: number;
 };
+
+export type ServiceChannel = "DINE_IN" | "TAKEAWAY" | "DELIVERY";
 
 export type RestaurantOrder = {
   id: string;
@@ -86,6 +125,7 @@ export type RestaurantOrder = {
   version: number;
   total: number;
   items: OrderItem[];
+  orderType?: ServiceChannel;
 };
 
 export type KitchenRound = {
@@ -163,6 +203,9 @@ export type CashShift = {
   expectedCash: number;
   closingCountedCash?: number;
   cashDifference?: number;
+  expectedCard?: number;
+  closingCountedCard?: number;
+  cardDifference?: number;
   closedBy?: string;
   closedAt?: string;
   closingNote?: string;
@@ -471,6 +514,23 @@ export const createCategory = (input: {
   body: JSON.stringify(input),
 });
 
+export const listAddonGroups = (locationId: string) =>
+  apiRequest<AddonGroup[]>(`/api/catalog/addon-groups?locationId=${encodeURIComponent(locationId)}`);
+
+export const createAddonGroup = (input: {
+  locationId: string;
+  name: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  options: Array<{ name: string; price: number }>;
+  productIds: string[];
+}) => apiRequest<AddonGroup>("/api/catalog/addon-groups", {
+  method: "POST",
+  body: JSON.stringify(input),
+});
+
 export const listProducts = (locationId: string) =>
   apiRequest<Product[]>(`/api/catalog/products?locationId=${encodeURIComponent(locationId)}`);
 
@@ -510,6 +570,14 @@ export const changeProductAvailability = (input: {
   body: JSON.stringify(input),
 });
 
+export const updateProductStations = (input: {
+  locationId: string;
+  assignments: Array<{ productId: string; station: Product["prepStation"] }>;
+}) => apiRequest<Product[]>("/api/catalog/products/prep-stations", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
 export const listOrders = (locationId: string) =>
   apiRequest<RestaurantOrder[]>(`/api/orders?locationId=${encodeURIComponent(locationId)}`);
 
@@ -518,8 +586,27 @@ export const openOrder = (input: {
   tableId: string;
   guestCount: number;
   notes?: string;
+  orderType?: ServiceChannel;
 }) => apiRequest<RestaurantOrder>("/api/orders", {
   method: "POST",
+  body: JSON.stringify(input),
+});
+
+export const updateOrderChannel = (input: {
+  orderId: string;
+  orderType: ServiceChannel;
+  expectedVersion: number;
+}) => apiRequest<RestaurantOrder>("/api/orders/channel", {
+  method: "PATCH",
+  body: JSON.stringify(input),
+});
+
+export const updateOrderGuests = (input: {
+  orderId: string;
+  guestCount: number;
+  expectedVersion: number;
+}) => apiRequest<RestaurantOrder>("/api/orders/guests", {
+  method: "PATCH",
   body: JSON.stringify(input),
 });
 
@@ -528,6 +615,7 @@ export const addOrderItem = (input: {
   productId: string;
   quantity: number;
   kitchenNote?: string;
+  addonOptionIds?: string[];
 }) => apiRequest<OrderItem>("/api/orders/items", {
   method: "POST",
   body: JSON.stringify(input),
@@ -558,14 +646,22 @@ export const sendOrderToKitchen = (orderId: string, idempotencyKey: string) =>
     body: JSON.stringify({ orderId, idempotencyKey }),
   });
 
+export const sendOrderToBar = (orderId: string, idempotencyKey: string) =>
+  apiRequest<KitchenRound>("/api/orders/send-bar", {
+    method: "POST",
+    body: JSON.stringify({ orderId, idempotencyKey }),
+  });
+
 export const cancelOrder = (orderId: string, reason: string) =>
   apiRequest<RestaurantOrder>("/api/orders/cancel", {
     method: "POST",
     body: JSON.stringify({ orderId, reason }),
   });
 
-export const listKitchenRounds = (locationId: string) =>
-  apiRequest<KitchenRound[]>(`/api/kitchen/rounds?locationId=${encodeURIComponent(locationId)}`);
+export const listKitchenRounds = (locationId: string, station: "KITCHEN" | "BAR" = "KITCHEN") =>
+  apiRequest<KitchenRound[]>(
+    `/api/kitchen/rounds?locationId=${encodeURIComponent(locationId)}&station=${encodeURIComponent(station)}`,
+  );
 
 export const changeKitchenRoundStatus = (input: {
   roundId: string;
@@ -615,13 +711,31 @@ export const listCashShifts = (locationId: string) =>
     `/api/cash-shifts?locationId=${encodeURIComponent(locationId)}`,
   );
 
+export const getOwnerPinStatus = () =>
+  apiRequest<{ configured: boolean; locked: boolean }>("/api/cash-shifts/owner-pin");
+
+export const setOwnerPin = (input: { pin: string; currentPin?: string }) =>
+  apiRequest<{ configured: boolean; locked: boolean }>("/api/cash-shifts/owner-pin", {
+    method: "POST",
+    body: JSON.stringify({
+      k: obfuscateSecret(input.pin),
+      c: input.currentPin ? obfuscateSecret(input.currentPin) : undefined,
+    }),
+  });
+
 export const openCashShift = (input: {
   locationId: string;
   openingAmount: number;
   idempotencyKey: string;
+  ownerPin: string;
 }) => apiRequest<CashShift>("/api/cash-shifts/open", {
   method: "POST",
-  body: JSON.stringify(input),
+  body: JSON.stringify({
+    locationId: input.locationId,
+    openingAmount: input.openingAmount,
+    idempotencyKey: input.idempotencyKey,
+    k: obfuscateSecret(input.ownerPin),
+  }),
 });
 
 export const createCashMovement = (input: {
@@ -638,17 +752,27 @@ export const createCashMovement = (input: {
 export const closeCashShift = (input: {
   cashShiftId: string;
   countedCash: number;
+  countedCard?: number;
   closingNote?: string;
   expectedVersion: number;
+  ownerPin: string;
 }) => apiRequest<CashShift>("/api/cash-shifts/close", {
   method: "POST",
-  body: JSON.stringify(input),
+  body: JSON.stringify({
+    cashShiftId: input.cashShiftId,
+    countedCash: input.countedCash,
+    countedCard: input.countedCard,
+    closingNote: input.closingNote,
+    expectedVersion: input.expectedVersion,
+    k: obfuscateSecret(input.ownerPin),
+  }),
 });
 
-export const getDailySales = (locationId: string, businessDate: string) =>
-  apiRequest<DailySales>(
-    `/api/sales?locationId=${encodeURIComponent(locationId)}&businessDate=${encodeURIComponent(businessDate)}`,
-  );
+export const getDailySales = (locationId: string, businessDate?: string) => {
+  const params = new URLSearchParams({ locationId });
+  if (businessDate) params.set("businessDate", businessDate);
+  return apiRequest<DailySales>(`/api/sales?${params.toString()}`);
+};
 
 export const getReportDashboard = (locationId: string, from: string, to: string) =>
   apiRequest<ReportDashboard>(

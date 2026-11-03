@@ -47,4 +47,15 @@ class CashShiftPolicyTest {
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Las salidas superan el efectivo esperado");
     }
+
+    @Test
+    void reconcilesCardSales() {
+        CashShiftPolicy.Reconciliation result = CashShiftPolicy.reconcileCard(
+                new BigDecimal("80.00"),
+                new BigDecimal("5.00"),
+                new BigDecimal("74.00")
+        );
+        assertThat(result.expectedCash()).isEqualByComparingTo("75.00");
+        assertThat(result.difference()).isEqualByComparingTo("-1.00");
+    }
 }

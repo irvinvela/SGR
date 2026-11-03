@@ -2,16 +2,14 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useAppNavigation } from "@/components/AppShell";
 import {
-  Location,
   ReportDashboard,
   getReportDashboard,
-  listLocations,
 } from "@/lib/api";
 
 export default function ReportsView() {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locationId, setLocationId] = useState("");
+  const { locations, locationId } = useAppNavigation();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [dashboard, setDashboard] = useState<ReportDashboard | null>(null);
@@ -19,24 +17,17 @@ export default function ReportsView() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    listLocations()
-      .then((result) => {
-        setLocations(result);
-        if (!result[0]) {
-          setError("No hay locales disponibles.");
-          setBusy(false);
-          return;
-        }
-        const end = dateInZone(result[0].timezone);
-        setLocationId(result[0].id);
-        setTo(end);
-        setFrom(shiftDate(end, -89));
-      })
-      .catch((cause) => {
-        setError(cause instanceof Error ? cause.message : "No se pudieron cargar los locales");
+    const location = locations.find((item) => item.id === locationId);
+    if (!location) {
+      if (locations.length === 0 && !locationId) {
         setBusy(false);
-      });
-  }, []);
+      }
+      return;
+    }
+    const end = dateInZone(location.timezone);
+    setTo(end);
+    setFrom(shiftDate(end, -89));
+  }, [locationId, locations]);
 
   useEffect(() => {
     if (!locationId || !from || !to) return;
@@ -56,16 +47,6 @@ export default function ReportsView() {
       .finally(() => setBusy(false));
   }, [locationId, from, to]);
 
-  function changeLocation(nextId: string) {
-    setLocationId(nextId);
-    const location = locations.find((item) => item.id === nextId);
-    if (location) {
-      const end = dateInZone(location.timezone);
-      setTo(end);
-      setFrom(shiftDate(end, -89));
-    }
-  }
-
   const money = useMemo(
     () => new Intl.NumberFormat("es-ES", {
       style: "currency",
@@ -81,14 +62,6 @@ export default function ReportsView() {
 
       <div className={dashboard ? "report-overview" : "report-overview report-overview-pending"}>
         <div className="report-controls">
-          <label>
-            Local
-            <select value={locationId} onChange={(event) => changeLocation(event.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
-              ))}
-            </select>
-          </label>
           <label>
             Desde
             <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />

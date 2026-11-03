@@ -11,6 +11,7 @@ import {
   listStaff,
   resetStaffPassword,
 } from "@/lib/api";
+import { SystemSelect } from "@/components/SystemSelect";
 
 const roleLabels: Record<StaffMember["role"], string> = {
   OWNER: "Propietario",
@@ -20,6 +21,8 @@ const roleLabels: Record<StaffMember["role"], string> = {
   KITCHEN: "Cocina",
 };
 
+type StaffChip = "all" | "active" | "inactive";
+
 export default function StaffView() {
   const { user } = useAppNavigation();
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -27,6 +30,8 @@ export default function StaffView() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [filter, setFilter] = useState<StaffChip>("all");
+  const [selectedId, setSelectedId] = useState("");
 
   useEffect(() => {
     refresh();
@@ -122,87 +127,134 @@ export default function StaffView() {
     }
   }
 
+  const visible = staff.filter((member) => canView(user, member)).filter((member) => {
+    if (filter === "active") return member.active;
+    if (filter === "inactive") return !member.active;
+    return true;
+  });
+  const selected = visible.find((member) => member.id === selectedId) ?? visible[0];
+  const manageable = selected ? canManage(user, selected) : false;
+  const isSelf = selected?.id === user.id;
+
   return (
-    <>
-      <div className="toolbar staff-toolbar">
-        <button
-          type="button"
-          className="toolbar-action-button"
-          onClick={showCreateModal}
-        >
+    <div className="staff-view">
+      <div className="pos-toolbar cash-topbar">
+        <div className="pos-chip-row">
+          <button type="button" className="pos-chip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
+            Todos <strong>{staff.filter((member) => canView(user, member)).length}</strong>
+          </button>
+          <button type="button" className="pos-chip" aria-pressed={filter === "active"} onClick={() => setFilter("active")}>
+            Activos
+          </button>
+          <button type="button" className="pos-chip" aria-pressed={filter === "inactive"} onClick={() => setFilter("inactive")}>
+            Inactivos
+          </button>
+        </div>
+        <button type="button" className="pos-shift-button" onClick={showCreateModal}>
           <CreateUserIcon />
-          <span>Crear usuario</span>
+          Crear usuario
         </button>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      {notice && <p className="success" role="status">{notice}</p>}
-      <section className="staff-list">
-        {staff
-          .filter((member) => canView(user, member))
-          .map((member) => {
-            const manageable = canManage(user, member);
-            const isSelf = member.id === user.id;
-            return (
-              <article className={member.active ? "staff-card" : "staff-card inactive"} key={member.id}>
-                <header>
-                  <div>
-                    <small>{member.email}</small>
-                    <h2>{member.displayName}{isSelf ? " (usted)" : ""}</h2>
-                  </div>
-                  <span className="operational-status">
-                    {member.active ? "Activo" : "Inactivo"}
-                  </span>
-                </header>
-                <p>
-                  Último acceso: {member.lastLoginAt
-                    ? new Date(member.lastLoginAt).toLocaleString("es-ES")
-                    : "Nunca"}
-                </p>
-                {manageable ? (
-                  <div className="staff-actions">
-                    <label>
-                      Rol
-                      <select
-                        value={member.role}
-                        disabled={busy || isSelf}
-                        onChange={(event) => updateRole(
-                          member,
-                          event.target.value as StaffMember["role"],
-                        )}
-                      >
-                        {assignableRoles(user).map((role) => (
-                          <option key={role} value={role}>{roleLabels[role]}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className={member.active ? "danger-button" : "secondary-button"}
+      {notice && <p className="pos-pane-hint cash-notice" role="status">{notice}</p>}
+
+      <div className="staff-board">
+        <section className="cash-pane">
+          <div className="pos-pane-head">
+            <h2><span>1</span> Equipo</h2>
+          </div>
+          <div className="cash-ticket-list">
+            {visible.map((member) => (
+              <button
+                type="button"
+                key={member.id}
+                className={`staff-person ${member.id === selected?.id ? "sel" : ""} ${member.active ? "" : "inactive"}`}
+                onClick={() => setSelectedId(member.id)}
+              >
+                <strong>{member.displayName}{member.id === user.id ? " (usted)" : ""}</strong>
+                <span>{roleLabels[member.role]} · {member.email}</span>
+                <em>{member.active ? "Activo" : "Inactivo"}</em>
+              </button>
+            ))}
+            {visible.length === 0 && <p className="pos-pane-hint">No hay usuarios en este filtro.</p>}
+          </div>
+        </section>
+
+        <section className="cash-pane">
+          <div className="pos-pane-head">
+            <h2><span>2</span> Ficha</h2>
+            {selected && (
+              <span className={`service-pill ${selected.active ? "status-open" : "status-out_of_service"}`}>
+                {selected.active ? "Activo" : "Inactivo"}
+              </span>
+            )}
+          </div>
+          {selected ? (
+            <>
+              <p className="pos-pane-hint">{selected.email}</p>
+              <div className="cash-metric-grid staff-detail-grid">
+                <div className="cash-tile">
+                  <span>Nombre</span>
+                  <strong>{selected.displayName}</strong>
+                </div>
+                <div className="cash-tile">
+                  <span>Rol</span>
+                  <strong>{roleLabels[selected.role]}</strong>
+                </div>
+                <div className="cash-tile">
+                  <span>Último acceso</span>
+                  <strong>
+                    {selected.lastLoginAt
+                      ? new Date(selected.lastLoginAt).toLocaleString("es-ES")
+                      : "Nunca"}
+                  </strong>
+                </div>
+              </div>
+              {manageable ? (
+                <div className="staff-detail-actions">
+                  <label>
+                    Rol
+                    <SystemSelect
+                      className="fill"
+                      value={selected.role}
                       disabled={busy || isSelf}
-                      onClick={() => updateStatus(member)}
-                    >
-                      {member.active ? "Desactivar" : "Activar"}
-                    </button>
-                    {!isSelf && (
-                      <form onSubmit={(event) => resetPassword(event, member)}>
-                        <input
-                          name="k"
-                          type="password"
-                          minLength={12}
-                          maxLength={200}
-                          placeholder="Nueva contraseña"
-                          required
-                        />
-                        <button className="secondary-button" disabled={busy}>Restablecer</button>
-                      </form>
-                    )}
-                  </div>
-                ) : (
-                  <strong>{roleLabels[member.role]}</strong>
-                )}
-              </article>
-            );
-          })}
-      </section>
+                      onChange={(next) => updateRole(selected, next as StaffMember["role"])}
+                      options={assignableRoles(user).map((role) => ({
+                        value: role,
+                        label: roleLabels[role],
+                      }))}
+                    />
+                  </label>
+                  <button
+                    className={selected.active ? "danger-button" : "cash-pane-action"}
+                    disabled={busy || isSelf}
+                    onClick={() => updateStatus(selected)}
+                  >
+                    {selected.active ? "Desactivar" : "Activar"}
+                  </button>
+                  {!isSelf && (
+                    <form onSubmit={(event) => resetPassword(event, selected)}>
+                      <input
+                        name="k"
+                        type="password"
+                        minLength={12}
+                        maxLength={200}
+                        placeholder="Nueva contraseña"
+                        required
+                      />
+                      <button className="cash-pane-action" disabled={busy}>Restablecer</button>
+                    </form>
+                  )}
+                </div>
+              ) : (
+                <p className="pos-pane-hint">No puede modificar este usuario.</p>
+              )}
+            </>
+          ) : (
+            <p className="pos-pane-hint">Selecciona un miembro del equipo.</p>
+          )}
+        </section>
+      </div>
       {createModalOpen && (
         <div
           className="creation-modal-backdrop"
@@ -247,11 +299,15 @@ export default function StaffView() {
               </label>
               <label>
                 Rol
-                <select name="role">
-                  {assignableRoles(user).map((role) => (
-                    <option key={role} value={role}>{roleLabels[role]}</option>
-                  ))}
-                </select>
+                <SystemSelect
+                  className="fill"
+                  name="role"
+                  defaultValue={assignableRoles(user)[0] ?? ""}
+                  options={assignableRoles(user).map((role) => ({
+                    value: role,
+                    label: roleLabels[role],
+                  }))}
+                />
               </label>
               <label>
                 Contraseña inicial
@@ -277,7 +333,7 @@ export default function StaffView() {
           </section>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

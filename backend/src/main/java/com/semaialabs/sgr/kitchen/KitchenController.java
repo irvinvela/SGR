@@ -40,9 +40,11 @@ public class KitchenController {
     @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'KITCHEN', 'SERVER')")
     public List<KitchenRoundResponse> listActiveRounds(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam UUID locationId
+            @RequestParam UUID locationId,
+            @RequestParam(defaultValue = "KITCHEN") String station
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
+        String prepStation = "BAR".equalsIgnoreCase(station) ? "BAR" : "KITCHEN";
         return jdbc.sql("""
                 SELECT
                     r.id, r.order_id, r.round_number, r.status, r.sent_at, r.version,
@@ -54,10 +56,12 @@ public class KitchenController {
                 WHERE r.organization_id = :organizationId
                   AND r.location_id = :locationId
                   AND r.status IN ('QUEUED', 'PREPARING', 'READY')
+                  AND r.station = :station
                 ORDER BY r.sent_at
                 """)
                 .param("organizationId", organizationId)
                 .param("locationId", locationId)
+                .param("station", prepStation)
                 .query((rs, rowNum) -> new KitchenRoundResponse(
                         rs.getObject("id", UUID.class),
                         rs.getObject("order_id", UUID.class),

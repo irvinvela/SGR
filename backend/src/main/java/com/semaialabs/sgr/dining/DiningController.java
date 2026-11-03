@@ -34,10 +34,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class DiningController {
     private final JdbcClient jdbc;
     private final AuditService audit;
+    private final TableOccupancy occupancy;
 
-    public DiningController(JdbcClient jdbc, AuditService audit) {
+    public DiningController(JdbcClient jdbc, AuditService audit, TableOccupancy occupancy) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.occupancy = occupancy;
     }
 
     @GetMapping("/areas")
@@ -94,12 +96,14 @@ public class DiningController {
     }
 
     @GetMapping("/tables")
+    @Transactional
     public List<TableResponse> listTables(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam UUID locationId
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
         requireLocation(organizationId, locationId);
+        occupancy.reconcileLocation(organizationId, locationId);
         return jdbc.sql("""
                 SELECT
                     t.id, t.location_id, t.area_id, a.name AS area_name,
@@ -195,17 +199,7 @@ public class DiningController {
             @Valid @RequestBody ChangeTableStatusRequest request
     ) {
         UUID organizationId = TenantContext.organizationId(jwt);
-        int activeOrders = jdbc.sql("""
-                SELECT COUNT(*)
-                FROM restaurant_orders
-                WHERE table_id = :tableId
-                  AND organization_id = :organizationId
-                  AND closed_at IS NULL
-                """)
-                .param("tableId", request.tableId())
-                .param("organizationId", organizationId)
-                .query(Integer.class)
-                .single();
+        int activeOrders = occupancy.countActivePedidos(organizationId, request.tableId());
         if (activeOrders > 0 && !List.of("OCCUPIED", "WAITING_PAYMENT").contains(request.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,

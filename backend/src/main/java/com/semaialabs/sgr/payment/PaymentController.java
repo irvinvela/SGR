@@ -82,11 +82,11 @@ public class PaymentController {
         }
         int unsentItems = jdbc.sql("""
                 SELECT COUNT(*)
-                FROM order_items
-                WHERE organization_id = :organizationId
-                  AND order_id = :orderId
-                  AND voided_at IS NULL
-                  AND sent_to_kitchen_at IS NULL
+                FROM order_items i
+                WHERE i.organization_id = :organizationId
+                  AND i.order_id = :orderId
+                  AND i.voided_at IS NULL
+                  AND i.sent_to_kitchen_at IS NULL
                 """)
                 .param("organizationId", organizationId)
                 .param("orderId", request.orderId())
@@ -95,7 +95,7 @@ public class PaymentController {
         if (unsentItems > 0) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Envíe todos los productos a cocina antes de solicitar la cuenta"
+                    "Envíe todos los productos a cocina y a barra antes de solicitar la cuenta"
             );
         }
 

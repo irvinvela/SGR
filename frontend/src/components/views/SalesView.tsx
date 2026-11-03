@@ -2,20 +2,17 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useAppNavigation } from "@/components/AppShell";
+import { SalesSankey } from "@/components/SalesSankey";
 import {
   DailySales,
-  Location,
   SalesReceipt,
   createRefund,
   getDailySales,
   getSalesReceipt,
-  listLocations,
 } from "@/lib/api";
 
 export default function SalesView() {
-  const { user, selectedOrderId } = useAppNavigation();
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locationId, setLocationId] = useState("");
+  const { user, selectedOrderId, locations, locationId, rememberSelection, navigate } = useAppNavigation();
   const [businessDate, setBusinessDate] = useState("");
   const [daily, setDaily] = useState<DailySales | null>(null);
   const [receipt, setReceipt] = useState<SalesReceipt | null>(null);
@@ -23,27 +20,27 @@ export default function SalesView() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [selectedArea, setSelectedArea] = useState<string | null>(null);
 
   useEffect(() => {
-    listLocations()
-      .then((result) => {
-        setLocations(result);
-        if (result[0]) {
-          setLocationId(result[0].id);
-          setBusinessDate(dateInZone(result[0].timezone));
-        }
-      })
-      .catch((cause) => setError(cause.message));
-  }, []);
+    setBusinessDate("");
+    setDaily(null);
+  }, [locationId]);
 
   useEffect(() => {
-    if (!locationId || !businessDate) return;
-    getDailySales(locationId, businessDate)
+    if (!locationId) return;
+    setSelectedArea(null);
+    getDailySales(locationId, businessDate || undefined)
       .then((result) => {
         setDaily(result);
+        const nextDate = isoDate(result.businessDate);
+        if (!businessDate && nextDate) setBusinessDate(nextDate);
         setError("");
-        if (selectedOrderId) loadReceipt(selectedOrderId);
-        else setReceipt(null);
+        if (selectedOrderId && result.sales.some((sale) => sale.orderId === selectedOrderId)) {
+          loadReceipt(selectedOrderId);
+        } else {
+          setReceipt(null);
+        }
       })
       .catch((cause) => setError(cause.message));
   }, [locationId, businessDate, selectedOrderId]);
@@ -55,12 +52,6 @@ export default function SalesView() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo cargar el comprobante");
     }
-  }
-
-  function changeLocation(nextLocationId: string) {
-    setLocationId(nextLocationId);
-    const location = locations.find((item) => item.id === nextLocationId);
-    if (location) setBusinessDate(dateInZone(location.timezone));
   }
 
   async function refundPayment(
@@ -101,25 +92,25 @@ export default function SalesView() {
   const currency = daily?.currency ?? "EUR";
   const money = new Intl.NumberFormat("es-ES", { style: "currency", currency });
 
+  const visibleSales = daily?.sales.filter((sale) => !selectedArea || sale.areaName === selectedArea) ?? [];
+
   return (
-    <>
+    <section className="sales-view">
       <div className="sales-controls">
-        <label>
-          Local
-          <select value={locationId} onChange={(event) => changeLocation(event.target.value)}>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>{location.name}</option>
-            ))}
-          </select>
-        </label>
         <label>
           Fecha operativa
           <input
             type="date"
             value={businessDate}
-            onChange={(event) => setBusinessDate(event.target.value)}
+            onChange={(event) => {
+              setBusinessDate(event.target.value);
+              setSelectedArea(null);
+            }}
           />
         </label>
+        <button type="button" className="inline-link-button no-print" onClick={() => navigate("checkout")}>
+          Ir a caja
+        </button>
       </div>
       {error && <p className="error no-print" role="alert">{error}</p>}
       {notice && <p className="success no-print" role="status">{notice}</p>}
@@ -127,19 +118,34 @@ export default function SalesView() {
         <>
           <section className="sales-overview">
             <Metric label="Ventas netas" value={money.format(daily.netSales)} />
-            <Metric label="Reembolsos" value={money.format(daily.refunds)} />
+            <Metric label="Pedidos" value={String(daily.orderCount)} />
             <Metric label="Efectivo" value={money.format(daily.cashSales)} />
             <Metric label="Tarjeta" value={money.format(daily.cardSales)} />
           </section>
+          <article className="sales-flow no-print">
+            <header>
+              <h2>Flujo del día</h2>
+              <p>Ventas cobradas por salón, hacia efectivo, tarjeta y reembolsos. Pulsa un salón para filtrar las operaciones.</p>
+            </header>
+            <SalesSankey
+              daily={daily}
+              money={money}
+              selectedArea={selectedArea}
+              onSelectArea={setSelectedArea}
+            />
+          </article>
           <div className="sales-layout">
             <section className="sales-list">
-              <h2>Operaciones del día</h2>
-              {daily.sales.map((sale) => (
+              <h2>{selectedArea ? `Operaciones · ${selectedArea}` : "Operaciones del día"}</h2>
+              {visibleSales.map((sale) => (
                 <button
                   type="button"
                   className={receipt?.orderId === sale.orderId ? "sale-row active" : "sale-row"}
                   key={sale.orderId}
-                  onClick={() => loadReceipt(sale.orderId)}
+                  onClick={() => {
+                    rememberSelection({ orderId: sale.orderId });
+                    loadReceipt(sale.orderId);
+                  }}
                 >
                   <span>Mesa {sale.tableName}</span>
                   <strong>{money.format(sale.total)}</strong>
@@ -149,7 +155,7 @@ export default function SalesView() {
                   </small>
                 </button>
               ))}
-              {daily.sales.length === 0 && (
+              {visibleSales.length === 0 && (
                 <p className="empty-state">No hay ventas para esta fecha.</p>
               )}
             </section>
@@ -168,7 +174,7 @@ export default function SalesView() {
           </div>
         </>
       )}
-    </>
+    </section>
   );
 }
 
@@ -295,15 +301,12 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function dateInZone(timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+function isoDate(value: string | number[] | undefined): string {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (Array.isArray(value) && value.length >= 3) {
+    return `${value[0]}-${String(value[1]).padStart(2, "0")}-${String(value[2]).padStart(2, "0")}`;
+  }
+  return "";
 }
 
 function formatDateTime(value: string, timezone: string): string {

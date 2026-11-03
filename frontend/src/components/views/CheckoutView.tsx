@@ -3,23 +3,19 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAppNavigation } from "@/components/AppShell";
 import {
-  Location,
   OrderPaymentSummary,
   RestaurantOrder,
   createPayment,
   createRefund,
   getCurrentCashShift,
   getOrderPaymentSummary,
-  listLocations,
   listOrders,
 } from "@/lib/api";
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 
 export default function CheckoutView() {
-  const { user, selectedOrderId, navigate } = useAppNavigation();
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [locationId, setLocationId] = useState("");
+  const { user, selectedOrderId, selectedTableId, navigate, locationId } = useAppNavigation();
   const [orders, setOrders] = useState<RestaurantOrder[]>([]);
   const [orderId, setOrderId] = useState("");
   const [summary, setSummary] = useState<OrderPaymentSummary | null>(null);
@@ -34,51 +30,39 @@ export default function CheckoutView() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    listLocations()
-      .then((result) => {
-        setLocations(result);
-        if (result[0]) setLocationId(result[0].id);
-      })
-      .catch((cause) => setError(cause.message));
-  }, []);
-
-  useEffect(() => {
     if (!locationId) return;
     refreshOrders(locationId);
-  }, [locationId]);
+  }, [locationId, selectedOrderId]);
 
-  useEffect(() => {
-    if (!orderId) {
-      setSummary(null);
-      return;
-    }
-    getOrderPaymentSummary(orderId)
-      .then((result) => {
-        setSummary(result);
-        setAmount(String(result.balance));
-        setTendered("");
-        setError("");
-      })
-      .catch((cause) => setError(cause.message));
-  }, [orderId]);
+  async function loadSummary(id: string) {
+    const result = await getOrderPaymentSummary(id);
+    setSummary(result);
+    setAmount(String(result.balance));
+    setTendered("");
+    setError("");
+    return result;
+  }
 
-  async function refreshOrders(currentLocationId = locationId) {
+  async function refreshOrders(currentLocationId = locationId, keepPaidId?: string) {
     try {
       const [orderResult, shiftResult] = await Promise.all([
         listOrders(currentLocationId),
         getCurrentCashShift(currentLocationId),
       ]);
-      const result = orderResult
-        .filter((order) => order.status === "WAITING_PAYMENT");
+      const result = orderResult.filter((order) => order.status === "WAITING_PAYMENT");
       setCashShiftOpen(Boolean(shiftResult.shift));
       setOrders(result);
-      const nextId = result.some((order) => order.id === selectedOrderId)
-        ? selectedOrderId!
-        : result.some((order) => order.id === orderId)
-          ? orderId
-          : result[0]?.id ?? "";
+      const nextId = keepPaidId
+        ?? (result.some((order) => order.id === selectedOrderId) ? selectedOrderId!
+          : result.some((order) => order.id === orderId) ? orderId
+            : result[0]?.id ?? "");
       setOrderId(nextId);
-      if (!nextId) setSummary(null);
+      if (keepPaidId) return;
+      if (!nextId) {
+        setSummary(null);
+        return;
+      }
+      await loadSummary(nextId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo cargar la caja");
     }
@@ -112,7 +96,7 @@ export default function CheckoutView() {
           : `Pago registrado. Saldo: ${money.format(result.summary.balance)}`,
       );
       if (result.summary.status === "PAID") {
-        await refreshOrders();
+        await refreshOrders(locationId, result.summary.orderId);
         setSummary(result.summary);
         setOrderId(result.summary.orderId);
       }
@@ -161,168 +145,199 @@ export default function CheckoutView() {
   }, [amount, method, tendered]);
 
   return (
-    <>
-      <div className="toolbar">
-        <label>
-          Local
-          <select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>{location.name}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {error && <p className="error" role="alert">{error}</p>}
-      {notice && <p className="success" role="status">{notice}</p>}
-      {!cashShiftOpen && locationId && (
-        <p className="cash-warning">
-          Debe existir un turno abierto para cobrar.{" "}
-          <button
-            type="button"
-            className="inline-link-button"
-            onClick={() => navigate("cash")}
-          >
-            Ir a turnos de caja
-          </button>
-        </p>
-      )}
-      <div className="checkout-layout">
-        <section className="checkout-orders">
-          <h2>Cuentas pendientes</h2>
-          {orders.map((order) => (
+    <div className="checkout-view">
+      <div className="pos-toolbar cash-topbar">
+        <div className="pos-chip-row" role="status">
+          <span className="pos-chip" aria-pressed={cashShiftOpen}>
+            {cashShiftOpen ? "Turno abierto" : "Sin turno"}
+          </span>
+          <span className="pos-chip" aria-pressed={orders.length > 0}>
+            {orders.length} {orders.length === 1 ? "cuenta" : "cuentas"}
+          </span>
+        </div>
+        <div className="cash-topbar-actions">
+          {(selectedOrderId || selectedTableId) && (
             <button
               type="button"
-              className={order.id === orderId ? "checkout-order active" : "checkout-order"}
-              key={order.id}
-              onClick={() => {
-                setOrderId(order.id);
-                setNotice("");
-                setRetryKey("");
-              }}
+              className="pos-shift-button"
+              onClick={() => navigate("pos", { orderId: selectedOrderId, tableId: selectedTableId })}
             >
-              <span>{order.areaName} · {order.tableName}</span>
-              <strong>{money.format(order.total)}</strong>
-              <small>Pedido #{order.orderNumber}</small>
+              Volver al TPV
             </button>
-          ))}
-          {orders.length === 0 && (
-            <p className="empty-state">No hay cuentas pendientes.</p>
           )}
+          <button type="button" className="pos-shift-button" onClick={() => navigate("cash")}>
+            Turnos de caja
+          </button>
+        </div>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="pos-pane-hint cash-notice" role="status">{notice}</p>}
+      {!cashShiftOpen && locationId && (
+        <p className="cash-warning">
+          Debe existir un turno abierto para cobrar.
+        </p>
+      )}
+
+      <div className="cash-board checkout-board">
+        <section className="cash-pane">
+          <div className="pos-pane-head">
+            <h2><span>1</span> Cuentas</h2>
+          </div>
+          <div className="cash-ticket-list">
+            {orders.map((order) => (
+              <button
+                type="button"
+                className={order.id === orderId ? "checkout-order-card sel" : "checkout-order-card"}
+                key={order.id}
+                onClick={() => {
+                  setOrderId(order.id);
+                  setNotice("");
+                  setRetryKey("");
+                  void loadSummary(order.id);
+                }}
+              >
+                <strong>{order.tableName}</strong>
+                <span>{order.areaName} · Pedido #{order.orderNumber}</span>
+                <b>{money.format(order.total)}</b>
+              </button>
+            ))}
+            {orders.length === 0 && (
+              <p className="pos-pane-hint">No hay cuentas pendientes.</p>
+            )}
+          </div>
         </section>
-        {summary && (
-          <section className="checkout-panel">
-            <header>
-              <div>
-                <small>{summary.areaName} · Pedido #{summary.orderNumber}</small>
-                <h2>{summary.tableName}</h2>
-              </div>
-              <span className={`payment-state ${summary.status.toLowerCase()}`}>
+
+        <section className="cash-pane">
+          <div className="pos-pane-head">
+            <h2><span>2</span> Cobro</h2>
+            {summary && (
+              <span className={`service-pill ${summary.status === "PAID" ? "status-open" : "status-waiting_payment"}`}>
                 {summary.status === "PAID" ? "Pagado" : "Cuenta solicitada"}
               </span>
-            </header>
-            <dl className="payment-totals">
-              <div><dt>Total</dt><dd>{money.format(summary.total)}</dd></div>
-              <div><dt>Pagado</dt><dd>{money.format(summary.paid)}</dd></div>
-              <div className="balance"><dt>Saldo</dt><dd>{money.format(summary.balance)}</dd></div>
-            </dl>
-            {summary.status === "WAITING_PAYMENT" && cashShiftOpen && (
-              <form className="payment-form" onSubmit={submitPayment}>
-                <label>
-                  Método
-                  <select value={method} onChange={(event) => setMethod(event.target.value as "CASH" | "CARD")}>
-                    <option value="CASH">Efectivo</option>
-                    <option value="CARD">Tarjeta</option>
-                  </select>
-                </label>
-                <label>
-                  Importe a aplicar
-                  <input
-                    type="number"
-                    min="0.01"
-                    max={summary.balance}
-                    step="0.01"
-                    value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
-                    required
-                  />
-                </label>
-                {method === "CASH" ? (
+            )}
+          </div>
+          {summary ? (
+            <>
+              <p className="pos-pane-hint">{summary.areaName} · {summary.tableName} · Pedido #{summary.orderNumber}</p>
+              <div className="cash-metric-grid checkout-totals">
+                <div className="cash-tile">
+                  <span>Total</span>
+                  <strong>{money.format(summary.total)}</strong>
+                </div>
+                <div className="cash-tile">
+                  <span>Pagado</span>
+                  <strong>{money.format(summary.paid)}</strong>
+                </div>
+                <div className="cash-tile emphasized">
+                  <span>Saldo</span>
+                  <strong>{money.format(summary.balance)}</strong>
+                </div>
+              </div>
+              {summary.status === "WAITING_PAYMENT" && cashShiftOpen && (
+                <form className="checkout-pay-form" onSubmit={submitPayment}>
+                  <div className="pos-chip-row">
+                    <button type="button" className="pos-chip" aria-pressed={method === "CASH"} onClick={() => setMethod("CASH")}>
+                      Efectivo
+                    </button>
+                    <button type="button" className="pos-chip" aria-pressed={method === "CARD"} onClick={() => setMethod("CARD")}>
+                      Tarjeta
+                    </button>
+                  </div>
                   <label>
-                    Efectivo recibido
+                    Importe a aplicar
                     <input
                       type="number"
-                      min={amount || "0.01"}
+                      min="0.01"
+                      max={summary.balance}
                       step="0.01"
-                      value={tendered}
-                      onChange={(event) => setTendered(event.target.value)}
+                      value={amount}
+                      onChange={(event) => setAmount(event.target.value)}
                       required
                     />
                   </label>
-                ) : (
-                  <label>
-                    Referencia (opcional)
-                    <input name="reference" maxLength={120} />
-                  </label>
-                )}
-                <div className="change-preview">
-                  <span>Cambio estimado</span>
-                  <strong>{money.format(estimatedChange)}</strong>
-                </div>
-                <button className="primary-button" disabled={busy}>
-                  {busy ? "Registrando…" : "Registrar pago"}
-                </button>
-              </form>
-            )}
-            {summary.payments.length > 0 && (
-              <div className="payment-history">
-                <h3>Pagos registrados</h3>
-                {summary.payments.map((payment) => (
-                  <div key={payment.id}>
-                    <span>{payment.method === "CASH" ? "Efectivo" : "Tarjeta"}</span>
-                    <strong>{money.format(payment.amount)}</strong>
-                    <time>{new Date(payment.paidAt).toLocaleString("es-ES")}</time>
-                    {payment.refundedAmount > 0 && (
-                      <small>Reembolsado {money.format(payment.refundedAmount)}</small>
-                    )}
-                    {["OWNER", "MANAGER"].includes(user.role)
-                      && payment.refundableAmount > 0 && (
-                      <form
-                        className="refund-form no-print"
-                        onSubmit={(event) => refundPayment(event, payment.id)}
-                      >
-                        {payment.method === "CARD" && (
-                          <small>Procese primero la devolución en el terminal de tarjeta.</small>
-                        )}
-                        <input
-                          name="amount"
-                          type="number"
-                          min="0.01"
-                          max={payment.refundableAmount}
-                          step="0.01"
-                          defaultValue={payment.refundableAmount}
-                          required
-                        />
-                        <input name="reason" maxLength={500} placeholder="Motivo" required />
-                        <button className="danger-button" disabled={busy}>Reembolsar</button>
-                      </form>
-                    )}
+                  {method === "CASH" ? (
+                    <label>
+                      Efectivo recibido
+                      <input
+                        type="number"
+                        min={amount || "0.01"}
+                        step="0.01"
+                        value={tendered}
+                        onChange={(event) => setTendered(event.target.value)}
+                        required
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      Referencia (opcional)
+                      <input name="reference" maxLength={120} />
+                    </label>
+                  )}
+                  <div className="cash-tile emphasized">
+                    <span>Cambio estimado</span>
+                    <strong>{money.format(estimatedChange)}</strong>
                   </div>
-                ))}
-              </div>
+                  <button className="cash-pane-action primary" disabled={busy}>
+                    {busy ? "Registrando…" : "Registrar pago"}
+                  </button>
+                </form>
+              )}
+              {["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(summary.status)
+                && ["OWNER", "MANAGER", "CASHIER"].includes(user.role) && (
+                <button
+                  type="button"
+                  className="cash-pane-action"
+                  onClick={() => navigate("sales", { orderId: summary.orderId })}
+                >
+                  Ver comprobante
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="pos-pane-hint">Selecciona una cuenta para cobrar.</p>
+          )}
+        </section>
+
+        <section className="cash-pane cash-pane-ticket">
+          <div className="pos-pane-head">
+            <h2><span>3</span> Pagos</h2>
+          </div>
+          <div className="cash-ticket-list">
+            {summary && summary.payments.length > 0 ? summary.payments.map((payment) => (
+              <article key={payment.id} className="cash-ticket-line">
+                <div>
+                  <strong>{payment.method === "CASH" ? "Efectivo" : "Tarjeta"}</strong>
+                  <time>{new Date(payment.paidAt).toLocaleString("es-ES")}</time>
+                  {payment.refundedAmount > 0 && (
+                    <span>Reembolsado {money.format(payment.refundedAmount)}</span>
+                  )}
+                </div>
+                <b>{money.format(payment.amount)}</b>
+                {["OWNER", "MANAGER"].includes(user.role) && payment.refundableAmount > 0 && (
+                  <form className="checkout-refund" onSubmit={(event) => refundPayment(event, payment.id)}>
+                    {payment.method === "CARD" && (
+                      <small>Procese primero la devolución en el terminal.</small>
+                    )}
+                    <input
+                      name="amount"
+                      type="number"
+                      min="0.01"
+                      max={payment.refundableAmount}
+                      step="0.01"
+                      defaultValue={payment.refundableAmount}
+                      required
+                    />
+                    <input name="reason" maxLength={500} placeholder="Motivo" required />
+                    <button className="danger-button" disabled={busy}>Reembolsar</button>
+                  </form>
+                )}
+              </article>
+            )) : (
+              <p className="pos-pane-hint">Aún no hay pagos en esta cuenta.</p>
             )}
-            {["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(summary.status)
-              && ["OWNER", "MANAGER", "CASHIER"].includes(user.role) && (
-              <button
-                type="button"
-                className="receipt-link no-print"
-                onClick={() => navigate("sales", { orderId: summary.orderId })}
-              >
-                Ver comprobante
-              </button>
-            )}
-          </section>
-        )}
+          </div>
+        </section>
       </div>
-    </>
+    </div>
   );
 }
